@@ -14,97 +14,105 @@
 
 
 from typing import Union
-from .database import databases, logging
+from .database import logging
 from .utils import *
+from functools import lru_cache
 
 
-def HHI(resource: Union[str, int], year: int, country: str):
+def HHI(resource: Union[str, int], year: int, country: Union[str, tuple], db):
     """
-    Calculates the Herfindahl-Hirschman index of production of resources
-    which is normalized to the scale of 0 - 1.
-    The dataframe is fetched from a utlity function.
+    Calculates the Herfindahl-Hirschman Index of production of resources,
+    normalized to a scale of 0 - 1.
     """
-    proddf = getProd(resource)
-    proddf = proddf[proddf["Country_Code"] != "DELETE"]
-    prod_year = proddf[str(year)].tolist()
-    HHI_Num = sumproduct(prod_year, prod_year)
     try:
-        hhi = HHI_Num / (sum(prod_year) * sum(prod_year))
-    except:
-        logging.debug(f"Error while calculating the HHI. Resource : {resource}, year : {year}")
-        raise ValueError
-    if cvtcountry(country, type="Name") in proddf["Country"].tolist():
-        try:
-            ProdQty = float(proddf.loc[proddf["Country"] == cvtcountry(country, type="Name"), str(year)].iloc[0])
-        except:
-            logging.debug(f"Error while extracting the production quantity, Resource : {resource}, Year: {year}, Country: {country} ")
-            raise ValueError
-    else:
-        ProdQty = 0
-    
-    if proddf["unit"].tolist()[0] == "kg":
-        ProdQty = ProdQty / 1000
-    elif proddf["unit"].tolist()[0] != "metr. t" and proddf["unit"].tolist()[0] != "kg":
-        raise ValueError
-    elif proddf["unit"].tolist()[0] == "Mio m3":
-        """
-        1 m³ = 0.8 kg = 0.0008 metr. t
-        """
-        ProdQty = ProdQty * 0.0008
-    """
-    The output includes the production quantity of a resource for a country in a given year and the Herfindahl-Hirschman Indexfor that year.
-    'ProdQty' : float
-    'hhi': float
-    """
+        proddf = getProd(resource=resource, db=db)
+        if proddf.empty or str(year) not in proddf.columns:
+            logging.debug(f"No production data found for resource: {resource}, year: {year}")
+            return 0, 0  # Default values
+
+        proddf = proddf[proddf["Country_Code"] != "DELETE"]
+        prod_year = proddf[str(year)].fillna(0).tolist()
+
+        HHI_Num = sumproduct(prod_year, prod_year)
+        hhi = HHI_Num / (sum(prod_year) ** 2) if sum(prod_year) > 0 else 0
+
+        if isinstance(country, tuple):  # Region case
+            ProdQty = sum(
+                proddf.loc[
+                    proddf["Country"].isin(
+                        [cvtcountry(db=db, country=country, type="Name") for country in country]),
+                    str(year)
+                ].fillna(0).tolist()
+            )
+        else:  # Single country case
+            ProdQty = proddf.loc[
+                proddf["Country"] == cvtcountry(db=db, country=country, type="Name"),
+                str(year)
+            ].fillna(0).iloc[0] if cvtcountry(db=db, country=country, type="Name") in proddf[
+                "Country"].tolist() else 0
+
+        if proddf["unit"].tolist()[0] == "kg":
+            ProdQty /= 1000
+        elif proddf["unit"].tolist()[0] == "Mio m3":
+            ProdQty *= 0.0008
+        elif proddf["unit"].tolist()[0] not in ["metr. t", "kg"]:
+            raise ValueError(f"Unexpected unit: {proddf['unit'].tolist()[0]}")
+
+
+    except Exception as e:
+        logging.debug(f"Error while calculating HHI. Resource: {resource}, Year: {year}, Country: {country}, Error: {e}")
+        return 0, 0  # Default values
+
     return ProdQty, hhi
 
+@lru_cache(maxsize=None)
+def cached_HHI(resource, year, country, db):
+    try:
+        return HHI(resource, year, country, db)
+    except Exception as e:
+        logging.debug(f"HHI calculation failed: {e}")
+        return 0, 0
 
-def importrisk(resource: int, year: int, country: list):
+
+
+def importrisk(resource: int, year: int, country: list, db):
     """
-    The second part of the equation of the GeoPolRisk method is referred to as 'import risk'.
-    This involves weighting the import quantity with the political stability score.
-    The political stability score is derived from the 
-    Political Stability and Absence of Violence indicator of the Worldwide Governance Indicators.
-    For more information, see Koyamparambath et al. (2024).
+    Calculates the import risk, handling cases with missing data gracefully.
     """
     def wgi_func(x):
-        """
-        For a country whose political stability score is missing, a score of 0.5 is assigned.
-        """
+        """Assign a default WGI value for missing data."""
         if isinstance(x, float):
             return x
-        else:
-            if x is None or isinstance(x, type(None)) or x.strip() == "NA":
-                return 0.5
-            else:
-                return x
-                  
-    if databases.regional != True:
-        ctry = cvtcountry(country[0], type="ISO")
-        tradedf = getbacidata(year, ctry, resource, data=databases.baci_trade) #Dataframe from the utility function
-        QTY = tradedf["qty"].astype(float).tolist()
-        WGI = tradedf["partnerWGI"].apply(wgi_func).astype(float).tolist()
-        VAL = tradedf["cifvalue"].astype(float).tolist()
+        return 0.5 if x is None or isinstance(x, type(None)) or x.strip() == "NA" else x
+
+    # Initialize variables with default values
+    Numerator, TotalTrade, Price = 0, 0, 0
+
+    if not db.regional:
         try:
-            Price = sum(VAL) / sum(QTY)
+            ctry = cvtcountry(db=db, country=country[0], type="ISO")
+            tradedf = getbacidata(year, ctry, resource, db=db)
+
+            if tradedf.empty:
+                logging.debug(f"No trade data found for resource: {resource}, country: {country}, year: {year}")
+                return Numerator, TotalTrade, Price  # Skip processing
+
+            QTY = tradedf["qty"].astype(float).tolist()
+            WGI = tradedf["partnerWGI"].apply(wgi_func).astype(float).tolist()
+            VAL = tradedf["cifvalue"].astype(float).tolist()
+
+            Price = sum(VAL) / sum(QTY) if sum(QTY) > 0 else 0
             TotalTrade = sum(QTY)
             Numerator = sumproduct(QTY, WGI)
-        except:
-            logging.debug(f"Error while making calculations. Resource: {resource}, Country: {country}, Year: {year}")
-            raise ValueError
+
+        except Exception as e:
+            logging.debug(f"Error while calculating import risk: {e}, Resource: {resource}, Country: {country}, Year: {year}")
     else:
         try:
-            Numerator, TotalTrade, Price = aggregateTrade(
-                year, country, resource, data=databases.baci_trade
-            )
-        except:
-            logging.debug(f"The inputs for calculating the 'import risk' dont match, Country: {country}")
+            Numerator, TotalTrade, Price = aggregateTrade(year, country, resource, db=db)
+        except Exception as e:
+            logging.debug(f"The inputs for calculating the 'import risk' don't match, Country: {country}, Error: {e}")
 
-    """
-    'Numerator' : float
-    'TotalTrade' : float
-    'Price' : float
-    """
     return Numerator, TotalTrade, Price
 
 
@@ -136,23 +144,23 @@ def importrisk_company(resource: int, year: int):
     return Numerator, TotalTrade, Price
 
 
-def GeoPolRisk(Numerator, TotalTrade, Price, ProdQty, hhi):
+def GeoPolRisk(Numerator, TotalTrade, Price, ProdQty, hhi, db):
     """
-    The GeoPolRisk method has two value outputs: the GeoPolRisk Score,
-    a non-dimensional score useful for comparative risk assessment,
-    and the characterization factor, which is used for evaluating
-    the GeoPolitical Supply Risk in Life Cycle Assessment with units of eq. kg-Cu/kg.
+    Calculates the GeoPolRisk Score and Characterization Factor.
     """
-    Denominator = TotalTrade + ProdQty
     try:
+        Denominator = TotalTrade + ProdQty
+        if Denominator <= 0:
+            logging.debug(f"Cannot calculate WTA. TotalTrade: {TotalTrade}, ProdQty: {ProdQty}")
+            return 0, 0, 0  # Default values
+
         WTA = Numerator / Denominator
-    except:
-        logging.debug(f"Check the Numerator and Denominator. Numerator: {Numerator}, Denominator: {Denominator}")
-    Score = hhi * WTA
-    CF = Score * Price
-    """
-    'Score' : GeoPolRisk Score : float
-    'CF' : GeoPolitical Supply Risk Potential : float
-    'WTA': Import Risk : float
-    """
+        hhi = hhi if hhi is not None else 0  # Fallback for missing HHI
+        Score = hhi * WTA
+        CF = Score * Price if Price > 0 else 0 ###### WHERE DO WE NORMALIZE TO COPPER???? UNLESS PRICE IS NORMALIZED TO COPPER
+
+    except Exception as e:
+        logging.debug(f"Error in GeoPolRisk. Inputs: {locals()}, Error: {e}")
+        return 0, 0, 0
+
     return Score, CF, WTA
