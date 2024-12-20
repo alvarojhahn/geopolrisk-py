@@ -13,6 +13,7 @@
 # along with geopolrisk-py.  If not, see <https://www.gnu.org/licenses/>.
 
 import pandas as pd
+import unicodedata
 import os
 from .database import logging, execute_query
 from pathlib import Path
@@ -74,42 +75,76 @@ def cvtresource(db, resource, type="HS"):
             raise ValueError
 
 
+def normalize_string(input_string):
+    """
+    Normalize strings to handle special characters and encoding issues.
+    """
+    if isinstance(input_string, str):
+        return unicodedata.normalize("NFC", input_string.strip())
+    return input_string
+
+
 def cvtcountry(db, country, type="ISO"):
     """
-    Type can be either 'ISO' or 'Name'
+    Convert country names or codes to ISO or name formats.
+    Type can be either 'ISO' or 'Name'.
     """
     MapISOdf = db.production["Country_ISO"]
+    country_original = country
+    country = normalize_string(country)
+
+    special_cases = {
+        "Türkiye": "Turkey",
+    }
+
+    if country in special_cases:
+        logging.debug(f"Special case applied: '{country_original}' normalized to '{special_cases[country]}'")
+        country = special_cases[country]
+
     try:
         if type == "ISO":
+            # Match by name
             if country in MapISOdf["Country"].tolist():
-                return MapISOdf.loc[MapISOdf["Country"] == country, "ISO"].iloc[0]
-            elif db.regional and country in db.regionslist:
-                return country
-            country = int(country)
-            if country in MapISOdf["ISO"].astype(int).tolist():
-                return country
-            else:
-                raise ValueError(f"Country '{country}' cannot be converted to ISO.")
+                iso = MapISOdf.loc[MapISOdf["Country"] == country, "ISO"].iloc[0]
+                return iso
+            # Match by numeric ISO code
+            try:
+                country_code = int(country)
+                if country_code in MapISOdf["ISO"].astype(int).tolist():
+                    return country_code
+            except ValueError:
+                pass
+            # Check regions list if db.regional exists
+            if db.regional and country in db.regionslist:
+                logging.debug(f"Country '{country_original}' is a region: {country}")
+                return country  # Return as-is for region names
+            raise ValueError(f"Country '{country_original}' cannot be converted to ISO.")
 
         elif type == "Name":
+            # Match by ISO code
             try:
-                country = int(country)
+                country_code = int(country)
+                if country_code in MapISOdf["ISO"].astype(int).tolist():
+                    name = MapISOdf.loc[MapISOdf["ISO"] == country_code, "Country"].iloc[0]
+                    return name
             except ValueError:
-                country = str(country)
-            if country in MapISOdf["ISO"].astype(int).tolist():
-                return MapISOdf.loc[MapISOdf["ISO"] == country, "Country"].iloc[0]
-            elif country in MapISOdf["Country"].tolist():
+                pass
+            # Match by name
+            if country in MapISOdf["Country"].tolist():
+                # logging.debug(f"Country '{country_original}' already in name format: {country}")
                 return country
-            elif db.regional and country in db.regionslist:
-                return country
-            else:
-                raise ValueError(f"Country '{country}' cannot be converted to Name.")
+            # Check regions list if db.regional exists
+            if db.regional and country in db.regionslist:
+                logging.debug(f"Country '{country_original}' is a region: {country}")
+                return country  # Return as-is for region names
+            raise ValueError(f"Country '{country_original}' cannot be converted to Name.")
+
         else:
             raise ValueError(f"Unsupported type '{type}'. Use 'ISO' or 'Name'.")
 
     except Exception as e:
-        logging.debug(f"Error converting country '{country}' to {type}: {e}")
-        raise
+        logging.debug(f"Error converting country '{country_original}' to {type}: {e}")
+        return None  # Return None for failures to avoid breaking the flow
 
 
 def sumproduct(A: list, B: list):
@@ -317,7 +352,7 @@ def aggregateTrade(filtered_data, year, countries, commoditycode, db=None):
             ]
 
         if country_data.empty:
-            logging.debug(f"No data for country={country}, year={year}")
+            # logging.debug(f"No data for country={country}, year={year}")
             continue
 
         # Aggregate values for this country
@@ -363,6 +398,15 @@ def preprocess_trade_data(periods, resources, db):
         logging.warning("Filtered trade data is empty. Verify inputs.")
     else:
         logging.debug(f"Filtered trade data size: {len(filtered_data)} rows.")
+
+    filtered_data = filtered_data.assign(
+        period=pd.to_numeric(filtered_data["period"], errors="coerce"),
+        reporterCode=pd.to_numeric(filtered_data["reporterCode"], errors="coerce"),
+        partnerCode=pd.to_numeric(filtered_data["partnerCode"], errors="coerce"),
+        cmdCode=filtered_data["cmdCode"].astype(str),
+        cifvalue=pd.to_numeric(filtered_data["cifvalue"], errors="coerce"),
+        qty=pd.to_numeric(filtered_data["qty"], errors="coerce"),
+    )
 
     return filtered_data
 

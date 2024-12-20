@@ -19,101 +19,148 @@ from .utils import *
 from functools import lru_cache
 
 
-def HHI(resource: Union[str, int], year: int, country: Union[str, tuple], db):
+def HHI(resource: Union[str, int], year: int, db, country=None):
     """
     Calculates the Herfindahl-Hirschman Index of production of resources,
     normalized to a scale of 0 - 1.
     """
     try:
+        # Fetch production data for the resource
         proddf = getProd(resource=resource, db=db)
         if proddf.empty or str(year) not in proddf.columns:
             logging.debug(f"No production data found for resource: {resource}, year: {year}")
             return 0, 0  # Default values
 
+        # Extract production quantities for the given year
         proddf = proddf[proddf["Country_Code"] != "DELETE"]
         prod_year = proddf[str(year)].fillna(0).tolist()
 
+        # Calculate HHI
         HHI_Num = sumproduct(prod_year, prod_year)
         hhi = HHI_Num / (sum(prod_year) ** 2) if sum(prod_year) > 0 else 0
 
-        if isinstance(country, tuple):  # Region case
-            ProdQty = sum(
-                proddf.loc[
-                    proddf["Country"].isin(
-                        [cvtcountry(db=db, country=country, type="Name") for country in country]),
-                    str(year)
-                ].fillna(0).tolist()
-            )
-        else:  # Single country case
-            ProdQty = proddf.loc[
-                proddf["Country"] == cvtcountry(db=db, country=country, type="Name"),
-                str(year)
-            ].fillna(0).iloc[0] if cvtcountry(db=db, country=country, type="Name") in proddf[
-                "Country"].tolist() else 0
+        # Calculate total production quantity
+        ProdQty = sum(prod_year)
 
-        if proddf["unit"].tolist()[0] == "kg":
-            ProdQty /= 1000
-        elif proddf["unit"].tolist()[0] == "Mio m3":
-            ProdQty *= 0.0008
-        elif proddf["unit"].tolist()[0] not in ["metr. t", "kg"]:
-            raise ValueError(f"Unexpected unit: {proddf['unit'].tolist()[0]}")
+        # If a country is specified, fetch its production quantity
+        if country is not None:
+            country_name = cvtcountry(db=db, country=country, type="Name")
+            if country_name in proddf["Country"].tolist():
+                country_prod = proddf.loc[proddf["Country"] == country_name, str(year)].fillna(0).iloc[0]
+            else:
+                country_prod = 0  # Default to 0 if no data is available
+        else:
+            # If no country is specified, calculate total global production
+            country_prod = sum(prod_year)
 
+        # Normalize production quantity based on unit
+        if not proddf.empty and "unit" in proddf.columns:
+            unit = proddf["unit"].iloc[0]
+            if unit == "kg":
+                ProdQty /= 1000
+            elif unit == "Mio m3":
+                ProdQty *= 0.0008
+            elif unit not in ["metr. t", "kg"]:
+                raise ValueError(f"Unexpected unit: {unit}")
 
     except Exception as e:
-        logging.debug(f"Error while calculating HHI. Resource: {resource}, Year: {year}, Country: {country}, Error: {e}")
+        logging.debug(f"Error while calculating HHI. Resource: {resource}, Year: {year}, Error: {e}")
         return 0, 0  # Default values
 
-    return ProdQty, hhi
+    return country_prod, hhi
 
 @lru_cache(maxsize=None)
-def cached_HHI(resource, year, country, db):
+def cached_HHI(resource, year, db, country):
     try:
-        return HHI(resource, year, country, db)
+        return HHI(resource=resource, year=year, db=db, country=country)
     except Exception as e:
         logging.debug(f"HHI calculation failed: {e}")
         return 0, 0
 
-
-
-def importrisk(resource: int, year: int, country: list, db):
+def importrisk(resource: int, year: int, importing_country: str, exporting_country: list, trade_data, global_price, db):
     """
-    Calculates the import risk, handling cases with missing data gracefully.
+    Calculates the import risk for exporting-importing country pairs and aggregated values.
     """
+    results = []
+
+    def replace_func(x):
+        """Ensure qty values are numeric and replace invalid entries."""
+        try:
+            return float(x) if x is not None and x != "NA" else 0.0
+        except (ValueError, TypeError):
+            return 0.0
+
     def wgi_func(x):
         """Assign a default WGI value for missing data."""
         if isinstance(x, float):
             return x
         return 0.5 if x is None or isinstance(x, type(None)) or x.strip() == "NA" else x
 
-    # Initialize variables with default values
-    Numerator, TotalTrade, Price = 0, 0, 0
+    try:
+        importer_iso = cvtcountry(db=db, country=importing_country, type="ISO")
 
-    if not db.regional:
-        try:
-            ctry = cvtcountry(db=db, country=country[0], type="ISO")
-            tradedf = getbacidata(year, ctry, resource, db=db)
+        country_trade_data = trade_data[
+            (trade_data["period"] == year) &
+            (trade_data["reporterCode"] == importer_iso) &
+            (trade_data["cmdCode"] == str(resource))
+        ]
 
-            if tradedf.empty:
-                logging.debug(f"No trade data found for resource: {resource}, country: {country}, year: {year}")
-                return Numerator, TotalTrade, Price  # Skip processing
+        if not country_trade_data.empty:
+            country_trade_data.loc[:, "qty"] = country_trade_data["qty"].apply(replace_func).astype(float)
+            country_trade_data.loc[:, "cifvalue"] = country_trade_data["cifvalue"].apply(replace_func).astype(
+                float)
 
-            QTY = tradedf["qty"].astype(float).tolist()
-            WGI = tradedf["partnerWGI"].apply(wgi_func).astype(float).tolist()
-            VAL = tradedf["cifvalue"].astype(float).tolist()
+            total_qty = country_trade_data["qty"].sum()
+            total_val = country_trade_data["cifvalue"].sum()
+            country_price = total_val / total_qty if total_qty > 0 else 0.0
 
-            Price = sum(VAL) / sum(QTY) if sum(QTY) > 0 else 0
-            TotalTrade = sum(QTY)
-            Numerator = sumproduct(QTY, WGI)
+        else:
+            country_price = 0.0
+            logging.debug(
+                f"No trade data found for Year={year}, Importing Country={importing_country}. Country Price set to 0.")
 
-        except Exception as e:
-            logging.debug(f"Error while calculating import risk: {e}, Resource: {resource}, Country: {country}, Year: {year}")
-    else:
-        try:
-            Numerator, TotalTrade, Price = aggregateTrade(year, country, resource, db=db)
-        except Exception as e:
-            logging.debug(f"The inputs for calculating the 'import risk' don't match, Country: {country}, Error: {e}")
+        for exporter in exporting_country:
+            try:
+                exporter_iso = cvtcountry(db=db, country=exporter, type="ISO")
 
-    return Numerator, TotalTrade, Price
+                tradedf = trade_data[
+                    (trade_data["period"] == year) &
+                    (trade_data["reporterCode"] == importer_iso) &
+                    (trade_data["partnerCode"] == exporter_iso) &
+                    (trade_data["cmdCode"] == str(resource))
+                ]
+
+                if tradedf.empty:
+                    logging.debug(
+                        f"No trade data for Exporter={exporter}, Year={year}, Resource={resource}. Skipping...")
+                    continue
+
+                tradedf.loc[:, "qty"] = tradedf["qty"].apply(replace_func).astype(float)
+                tradedf.loc[:, "cifvalue"] = tradedf["cifvalue"].apply(replace_func).astype(float)
+                tradedf.loc[:, "partnerWGI"] = tradedf["partnerWGI"].apply(wgi_func).astype(float)
+
+                QTY = tradedf["qty"].tolist()
+                WGI = tradedf["partnerWGI"].tolist()
+
+                trade = sum(QTY)
+                numerator = sumproduct(QTY, WGI)
+
+                results.append({
+                    "Exporter": exporter,
+                    "Numerator": numerator,
+                    "TotalTrade": trade,
+                    "GlobalPrice": global_price,
+                    "CountryPrice": country_price,
+                })
+
+            except Exception as e:
+                logging.debug(
+                    f"Error while calculating import risk: {e}, Resource: {resource}, Importing Country: {importing_country}, Year: {year}")
+
+    except Exception as e:
+        logging.debug(f"Error while calculating import risk: {e}, Resource: {resource}, Importing Country: {importing_country}, Year: {year}")
+
+    return results
 
 
 def importrisk_company(resource: int, year: int):
@@ -144,23 +191,22 @@ def importrisk_company(resource: int, year: int):
     return Numerator, TotalTrade, Price
 
 
-def GeoPolRisk(Numerator, TotalTrade, Price, ProdQty, hhi, db):
+def GeoPolRisk(numerator, denominator, price, hhi, db):
     """
     Calculates the GeoPolRisk Score and Characterization Factor.
     """
     try:
-        Denominator = TotalTrade + ProdQty
-        if Denominator <= 0:
-            logging.debug(f"Cannot calculate WTA. TotalTrade: {TotalTrade}, ProdQty: {ProdQty}")
+        if denominator <= 0:
             return 0, 0, 0  # Default values
 
-        WTA = Numerator / Denominator
+        WTA = numerator / denominator
         hhi = hhi if hhi is not None else 0  # Fallback for missing HHI
         Score = hhi * WTA
-        CF = Score * Price if Price > 0 else 0 ###### WHERE DO WE NORMALIZE TO COPPER???? UNLESS PRICE IS NORMALIZED TO COPPER
+        CF = Score * price if price > 0 else 0
 
     except Exception as e:
         logging.debug(f"Error in GeoPolRisk. Inputs: {locals()}, Error: {e}")
         return 0, 0, 0
 
     return Score, CF, WTA
+
