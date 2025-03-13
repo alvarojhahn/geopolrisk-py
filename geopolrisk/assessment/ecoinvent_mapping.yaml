@@ -1,0 +1,212 @@
+ecoinvent_mappings:
+  260600:
+    resource_name: "Aluminium"
+    dataset_name: "aluminium production, primary"
+    dataset_reference_product: "aluminium, primary"
+    operator: "startswith"
+  261710:
+    resource_name: "Antimony"
+    dataset_name: "antimony production"
+    dataset_reference_product: "antimony"
+    operator: "startswith"
+  280480:
+    resource_name: "Arsenic"
+    dataset_name: "arsenic"
+    dataset_reference_product: "arsenic"
+    operator: "startswith"
+  252400:
+    resource_name: "Asbestos"
+    dataset_name: "asbestos production, chrysotile type"
+    dataset_reference_product: "asbestos"
+    operator: "startswith"
+  251110:
+    resource_name: "Baryte"
+    dataset_name: "barite production"
+    dataset_reference_product: "barite"
+    operator: "startswith"
+  280450:
+    resource_name: "Boron"
+    dataset_name: "boron carbide"
+    dataset_reference_product: "boron"
+    operator: "startswith"
+  810710:
+    resource_name: "Cadmium"
+    dataset_name: "cadmium production, primary"
+    dataset_reference_product: "cadmium"
+    operator: "startswith"
+  261000:
+    resource_name: "Chromium"
+    dataset_name: "chromium production"
+    dataset_reference_product: "chromium"
+    operator: "startswith"
+  270111:
+    resource_name: "Coal"
+    dataset_name: "hard coal"
+    dataset_reference_product: "hard coal"
+    operator: "startswith"
+  282200:
+    resource_name: "Cobalt"
+    dataset_name: "cobalt production"
+    dataset_reference_product: "cobalt"
+    operator: "startswith"
+  260300:
+    resource_name: "Copper"
+    dataset_name: "copper mine operation"
+    dataset_reference_product: "copper concentrate"
+    operator: "startswith"
+  270900:
+    resource_name: "Crude oil"
+    dataset_name: "petroleum and gas production"
+    dataset_reference_product: "petroleum"
+    operator: "startswith"
+  252910:
+    resource_name: "Feldspar"
+    dataset_name: "feldspar production"
+    dataset_reference_product: "feldspar"
+    operator: "startswith"
+  252922:
+    resource_name: "Fluorspar"
+    dataset_name: "fluorspar production"
+    dataset_reference_product: "fluorspar"
+    operator: "startswith"
+  811291:
+    resource_name: "Gallium"
+    dataset_name: "gallium production"
+    dataset_reference_product: "gallium"
+    operator: "startswith"
+  282560:
+    resource_name: "Germanium"
+    dataset_name: "zinc mine operation"
+    dataset_reference_product: "germanium"
+    operator: "startswith"
+  710811:
+    resource_name: "Gold"
+    dataset_name: "gold production"
+    dataset_reference_product: "gold"
+    operator: "startswith"
+  250410:
+    resource_name: "Graphite"
+    dataset_name: "graphite production"
+    dataset_reference_product: "graphite"
+    operator: "startswith"
+  252010:
+    resource_name: "Gypsum"
+    dataset_name: "gypsum quarry operation"
+    dataset_reference_product: "gypsum, mineral"
+    operator: "startswith"
+  260111:
+    resource_name: "Iron"
+    dataset_name: "iron production"
+    dataset_reference_product: "iron"
+    operator: "contains"
+  260700:
+    resource_name: "Lead"
+    dataset_name: "primary lead production from concentrate"
+    dataset_reference_product: "lead"
+    operator: "startswith"
+  270112:
+    resource_name: "Lignite"
+    dataset_name: "lignite mine operation"
+    dataset_reference_product: "lignite"
+    operator: "startswith"
+  283691:
+    resource_name: "Lithium"
+    dataset_name: "lithium carbonate production"
+    dataset_reference_product: "lithium carbonate"
+    operator: "startswith"
+  251910:
+    resource_name: "Magnesium"
+    dataset_name: "magnesium production"
+    dataset_reference_product: "magnesium"
+    operator: "startswith"
+  260200:
+    resource_name: "Manganese"
+    dataset_name: "manganese production"
+    dataset_reference_product: "manganese"
+    operator: "startswith"
+  280540:
+    resource_name: "Mercury"
+    dataset_name: "mercury production"
+    dataset_reference_product: "mercury"
+    operator: "startswith"
+  261310:
+    resource_name: "Molybdenum"
+    dataset_name: "molybdenum production"
+    dataset_reference_product: "molybdenum"
+    operator: "startswith"
+  271111:
+    resource_name: "Natural gas"
+    dataset_name: "petroleum and gas production"
+    dataset_reference_product: "natural gas, high pressure"
+    operator: "startswith"
+  260400:
+    resource_name: "Nickel"
+    dataset_name: "platinum group metal"
+    dataset_reference_product: "nickel"
+    operator: "contains"
+  261590:
+    resource_name: "Niobium"
+    dataset_name: "ferroniobium production, from pyrochlore concentrate, 66% Nb"
+    dataset_reference_product: "ferroniobium"
+    operator: "startswith"
+  711021:
+    resource_name: "Palladium"
+    dataset_name: "platinum group metal"
+    dataset_reference_product: "palladium"
+    operator: "startswith"
+  711011:
+    resource_name: "Platinum"
+    dataset_name: "platinum group metal"
+    dataset_reference_product: "platinum"
+    operator: "startswith"
+  284690:
+    resource_name: "Rare earth"
+    dataset_name: "rare earth element mine"
+    dataset_reference_product: "rare earth carbonate concentrate"
+    operator: "startswith"
+  711031:
+    resource_name: "Rhodium"
+    dataset_name: "platinum group metal"
+    dataset_reference_product: "rhodium"
+    operator: "startswith"
+  280490:
+    resource_name: "Selenium"
+    dataset_name: "selenium production"
+    dataset_reference_product: "selenium"
+    operator: "startswith"
+  261610:
+    resource_name: "Silver"
+    dataset_name: "mine operation"
+    dataset_reference_product: "silver"
+    operator: "contains"
+  260900:
+    resource_name: "Tin"
+    dataset_name: "tin production"
+    dataset_reference_product: "tin"
+    operator: "startswith"
+  261400:
+    resource_name: "Titanium"
+    dataset_name: "titanium production"
+    dataset_reference_product: "titanium"
+    operator: "startswith"
+  261100:
+    resource_name: "Tungsten"
+    dataset_name: "tungsten mine operation and beneficiation"
+    dataset_reference_product: "tungsten concentrate"
+    operator: "startswith"
+  261210:
+    resource_name: "Uranium"
+    dataset_name: "uranium mine operation"
+    dataset_reference_product: "uranium"
+    operator: "startswith"
+  260800:
+    resource_name: "Zinc"
+    dataset_name: "primary zinc production from concentrate"
+    dataset_reference_product: "zinc"
+    operator: "startswith"
+  261510:
+    resource_name: "Zirconium"
+    dataset_name: "zirconium"
+    dataset_reference_product: "zirconium"
+    operator: "startswith"
+

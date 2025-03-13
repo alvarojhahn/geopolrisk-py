@@ -197,7 +197,7 @@ def createresultsdf(db):
         	"GeoPolRisk Characterization Factor [eq. Kg-Cu/Kg]"	REAL,
         	"HHI"	REAL,
         	"Import Risk" REAL,
-        	"Price"	INTEGER,
+        	"Price"	REAL,
         	PRIMARY KEY("DBID")
         );"""
     row = execute_query(
@@ -219,12 +219,12 @@ def writetodb(db, dataframe):
                 SET 
                     "Country [Economic Entity]" = ?,
                     "Raw Material" = ?,
-                    Year = ?,
+                    "Year" = ?,
                     "GeoPolRisk Score" = ?,
                     "GeoPolRisk Characterization Factor [eq. Kg-Cu/Kg]" = ?,
-                    HHI = ?,
+                    "HHI" = ?,
                     "Import Risk" = ?,
-                    Price = ?
+                    "Price" = ?
                 WHERE DBID = ?;
             '''
             params = (
@@ -250,12 +250,12 @@ def writetodb(db, dataframe):
                     DBID,
                     "Country [Economic Entity]",
                     "Raw Material",
-                    Year,
+                    "Year",
                     "GeoPolRisk Score",
                     "GeoPolRisk Characterization Factor [eq. Kg-Cu/Kg]",
-                    HHI,
+                    "HHI",
                     "Import Risk",
-                    Price
+                    "Price"
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);
             '''
             params = (

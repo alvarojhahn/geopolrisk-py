@@ -20,6 +20,19 @@ from geopolrisk.assessment.database import Database
 from geopolrisk.assessment.utils import regions
 from .core import *
 from .utils import *
+import yaml
+from pathlib import Path
+
+def load_ei_mapping():
+    """
+    Load ecoinvent mapping from the YAML file.
+    """
+
+    script_dir = Path(__file__).resolve().parent
+    yaml_path = script_dir / "ecoinvent_mapping.yaml"
+    with open(yaml_path, "r") as file:
+        ecoinvent_mapping = yaml.safe_load(file)["ecoinvent_mappings"]
+    return ecoinvent_mapping
 
 
 def gprs_calc(period: list, countries: list, resources: list, region_dict={}, db=None):
@@ -30,6 +43,8 @@ def gprs_calc(period: list, countries: list, resources: list, region_dict={}, db
     if db is None:
         raise ValueError("Database instance is required!")
 
+    ecoinvent_mapping = load_ei_mapping()
+
     preprocessed_trade_data = preprocess_trade_data(period, resources, db)
     regions(region_dict, db)
 
@@ -38,6 +53,12 @@ def gprs_calc(period: list, countries: list, resources: list, region_dict={}, db
     for year, importing_country, resource in tqdm(itertools.product(period, countries, resources), desc="Calculating the GeoPolRisk: ", unit="iterations", total=total_iterations):
 
         resource_hs = cvtresource(db=db, resource=resource, type="HS")
+
+        # Fetching ecoinvent mapping
+        mapping = ecoinvent_mapping.get(resource, {})
+        dataset_name = mapping.get("dataset_name", "Unknown")
+        dataset_reference_product = mapping.get("dataset_reference_product", "Unknown")
+        operator = mapping.get("operator", "Unknown")
 
         # Filter global and relevant trade data
         global_trade = preprocessed_trade_data[
@@ -86,7 +107,7 @@ def gprs_calc(period: list, countries: list, resources: list, region_dict={}, db
             # Accumulate for global metrics
             global_numerator += numerator
 
-            Score, CF, IR = GeoPolRisk(numerator, denominator, country_price, hhi, db=db)
+            Score, CF, CF_norm, IR = GeoPolRisk(numerator, denominator, country_price, hhi, db=db)
             results.append({
                 "Year": year,
                 "Importing Country": cvtcountry(db=db, country=importing_country, type="Name"),
@@ -95,15 +116,19 @@ def gprs_calc(period: list, countries: list, resources: list, region_dict={}, db
                 "Resource Name": cvtresource(db=db, resource=resource, type="Name"),
                 "GeoPolRisk Score [-]": Score,
                 "GeoPolRisk Characterization Factor [USD/Kg]": CF,
+                "GeoPolRisk Characterization Factor Normalized to copper [-]": CF_norm,
                 "HHI": hhi,
                 "Import Risk": IR,
                 "Global Price": global_price,
                 "Country Price": country_price,
+                "Dataset name": dataset_name,
+                "Dataset reference product": dataset_reference_product,
+                "operator": operator,
             })
 
         # Add the "Global" row
         if global_numerator  > 0:
-            Score_global, CF_global, IR_global = GeoPolRisk(global_numerator, denominator, country_price, hhi, db=db)
+            Score_global, CF_global, CF_norm, IR_global = GeoPolRisk(global_numerator, denominator, country_price, hhi, db=db)
             results.append({
                 "Year": year,
                 "Importing Country": cvtcountry(db=db, country=importing_country, type="Name"),
@@ -112,10 +137,14 @@ def gprs_calc(period: list, countries: list, resources: list, region_dict={}, db
                 "Resource Name": cvtresource(db=db, resource=resource, type="Name"),
                 "GeoPolRisk Score [-]": Score_global,
                 "GeoPolRisk Characterization Factor [USD/Kg]": CF_global,
+                "GeoPolRisk Characterization Factor Normalized to copper [-]": CF_norm,
                 "HHI": hhi,
                 "Import Risk": IR_global,
                 "Global Price": global_price,
                 "Country Price": country_price,
+                "Dataset name": dataset_name,
+                "Dataset reference product": dataset_reference_product,
+                "operator": operator,
             })
 
     # Save results to Excel
@@ -126,142 +155,3 @@ def gprs_calc(period: list, countries: list, resources: list, region_dict={}, db
         print(f"Results successfully saved to {output_path}")
     except Exception as e:
         print(f"Error saving results to Excel: {e}")
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-# def gprs_calc(period: list, countries: list, resources: list, region_dict={}, db=None):
-#     """
-#     A single aggregate function performs all calculations and exports the results as an Excel file.
-#     The inputs include a list of years, a list of countries,
-#     and a list of resources, with an optional dictionary for defining new regions.
-#     The lists can contain resource names such as 'Cobalt' and 'Lithium',
-#     and country names like 'Japan' and 'Canada', or alternatively, HS codes and ISO digit codes.
-#
-#     For regional assessments, regions must be defined in the dictionary with country names,
-#     not ISO digit codes.
-#     For example, the 'West Europe' region can be defined as
-#     {
-#         'West Europe': ['France', 'Germany', 'Italy', 'Spain', 'Portugal', 'Belgium', 'Netherlands', 'Luxembourg']
-#         }.
-#     """
-#     if db is None:
-#         raise ValueError("Database instance is required!")
-#
-#     preprocessed_trade_data = preprocess_trade_data(period, resources, db)
-#     # preprocessed_production_data = preprocess_production_data(resources, period, db)
-#
-#     regions(region_dict, db)
-#
-#     results = []
-#     for year, importing_country, resource in tqdm(
-#             itertools.product(period, countries, resources), desc="Calculating the GeoPolRisk: ", unit="iterations"):
-#
-#             resource_hs = cvtresource(db=db, resource=resource, type="HS")
-#
-#             global_trade = preprocessed_trade_data[
-#                 (preprocessed_trade_data["period"] == year) &
-#                 (preprocessed_trade_data["cmdCode"] == str(resource_hs))
-#             ]
-#
-#             relevant_trade_data = preprocessed_trade_data[
-#                 (preprocessed_trade_data["period"] == year) &
-#                 (preprocessed_trade_data["reporterCode"] == importing_country) &
-#                 (preprocessed_trade_data["cmdCode"] == str(resource))
-#                 ]
-#
-#             if global_trade.empty:
-#                 logging.debug(f"No trade data for Year={year}, Resource={resource_hs}. Skipping...")
-#                 continue
-#
-#             if relevant_trade_data.empty:
-#                 logging.debug(f"No trade data for Year={year}, Resource={resource_hs}. Skipping...")
-#                 continue
-#
-#             global_price = (
-#                 global_trade["cifvalue"].sum() / global_trade["qty"].sum()
-#                 if global_trade["qty"].sum() > 0 else 0
-#             )
-#
-#             prodqty, hhi = cached_HHI(resource, year, db=db)
-#
-#             exporters = relevant_trade_data["partnerDesc"].unique()
-#             exporters_normalized = []
-#             for exporter in exporters:
-#                 try:
-#                     exporter_iso = cvtcountry(db=db, country=exporter, type="ISO")
-#                     if exporter_iso is not None:
-#                         exporters_normalized.append(exporter_iso)
-#                 except Exception as e:
-#                     logging.debug(f"Error normalizing exporter '{exporter}': {e}")
-#
-#             risk_results = importrisk(resource, year, importing_country, exporters_normalized, preprocessed_trade_data, global_price, db)
-#
-#             if not risk_results:
-#                 logging.debug(
-#                     f"No risk results for Year={year}, Country={importing_country}, Resource={resource}. Skipping...")
-#                 continue
-#
-#             # Add results for individual exporters
-#             global_numerator = 0
-#             global_total_trade = 0
-#             for risk in risk_results:
-#                 exporter = risk["Exporter"]
-#                 numerator = risk["Numerator"]
-#                 totaltrade = risk["TotalTrade"]
-#                 global_price = risk["GlobalPrice"]
-#                 country_price = risk["CountryPrice"]
-#
-#                 global_numerator += numerator
-#                 global_total_trade += totaltrade
-#
-#                 Score, CF, IR = GeoPolRisk(numerator, totaltrade, country_price, prodqty, hhi, db=db)
-#
-#                 results.append({
-#                     "Year": year,
-#                     "Importing Country": cvtcountry(db=db, country=importing_country, type="Name"),
-#                     "Exporting Country": cvtcountry(db=db, country=exporter, type="Name"),
-#                     "Resource HS": resource,
-#                     "Resource name": cvtresource(db=db, resource=resource, type="Name"),
-#                     "GeoPolRisk Score [-]": Score,
-#                     "GeoPolRisk Characterization Factor [USD/Kg]": CF,
-#                     "Global Price": global_price,
-#                     "Country Price": country_price,
-#                     "HHI": hhi,
-#                     "Import Risk": IR
-#                 })
-#
-#             # Add the "Global" row
-#             if global_total_trade > 0:
-#                 global_score, global_cf, global_ir = GeoPolRisk(global_numerator, global_total_trade, country_price, prodqty, hhi, db=db)
-#                 results.append({
-#                     "Year": year,
-#                     "Importing Country": cvtcountry(db=db, country=importing_country, type="Name"),
-#                     "Exporting Country": "Global",
-#                     "Resource HS": resource,
-#                     "Resource name": cvtresource(db=db, resource=resource, type="Name"),
-#                     "GeoPolRisk Score [-]": global_score,
-#                     "GeoPolRisk Characterization Factor [USD/Kg]": global_cf,
-#                     "Global Price": global_price,
-#                     "Country Price": country_price,
-#                     "HHI": hhi,
-#                     "Import Risk": global_ir,
-#                 })
-#
-#     results_df = pd.DataFrame(results)
-#     output_path = str(Path(db.output_directory) / "results.xlsx")
-#     try:
-#         results_df.to_excel(output_path, index=False)
-#         print(f"Results successfully saved to {output_path}")
-#     except Exception as e:
-#         print(f"Error saving results to Excel: {e}")

@@ -44,11 +44,21 @@ def HHI(resource: Union[str, int], year: int, db, country=None):
 
         # If a country is specified, fetch its production quantity
         if country is not None:
-            country_name = cvtcountry(db=db, country=country, type="Name")
-            if country_name in proddf["Country"].tolist():
-                country_prod = proddf.loc[proddf["Country"] == country_name, str(year)].fillna(0).iloc[0]
+            country_iso = str(cvtcountry(db=db, country=country, type="ISO"))
+
+            country_production = proddf[proddf["Country_Code"].astype(str) == country_iso]
+
+            if not country_production.empty:
+                country_prod = country_production[str(year)].fillna(0)
+                country_prod = country_prod.iloc[0] if not country_prod.empty else 0
             else:
+                logging.debug(f"No production data found for {country}: {country_iso}, year: {year}")
                 country_prod = 0  # Default to 0 if no data is available
+
+            # if country_name in proddf["Country_Code"].astype(int).tolist():
+            #     country_prod = proddf.loc[proddf["Country"] == country_name, str(year)].fillna(0).iloc[0]
+            # else:
+            #     country_prod = 0  # Default to 0 if no data is available
         else:
             # If no country is specified, calculate total global production
             country_prod = sum(prod_year)
@@ -199,14 +209,18 @@ def GeoPolRisk(numerator, denominator, price, hhi, db):
         if denominator <= 0:
             return 0, 0, 0  # Default values
 
+
+        CF_Cu = 0.409412948
+
         WTA = numerator / denominator
         hhi = hhi if hhi is not None else 0  # Fallback for missing HHI
         Score = hhi * WTA
-        CF = Score * price if price > 0 else 0
+        CF = (Score * price) if price > 0 else 0
+        CF_norm = CF / CF_Cu
 
     except Exception as e:
         logging.debug(f"Error in GeoPolRisk. Inputs: {locals()}, Error: {e}")
         return 0, 0, 0
 
-    return Score, CF, WTA
+    return Score, CF, CF_norm, WTA
 

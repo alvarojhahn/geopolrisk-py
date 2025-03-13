@@ -16,7 +16,7 @@
 import sqlite3
 import pandas as pd
 import logging
-import os
+import time
 from tqdm import tqdm
 from datetime import datetime
 import importlib.resources
@@ -27,20 +27,51 @@ logging = logging
 
 
 # Generic SQL function (multi use)
-def execute_query(query, db_path="", params=None):
-    conn = sqlite3.connect(db_path)
-    cursor = conn.cursor()
-    is_select_query = query.strip().lower().startswith("select")
-    if is_select_query:
-        cursor.execute(query, params or [])
-        results = cursor.fetchall()
-    else:
-        cursor.execute(query, params or [])
-        results = None
-    conn.commit()
-    conn.close()
-    if is_select_query:
-        return results
+def execute_query(query, db_path="", params=None, retries=5, delay=0.1):
+    """
+    Execute an SQL query on a SQLite database with retry mechanism for locked database.
+
+    Args:
+        query (str): SQL query to execute.
+        db_path (str): Path to the SQLite database file.
+        params (tuple or list, optional): Parameters for the SQL query.
+        retries (int, optional): Number of retries if the database is locked. Default is 5.
+        delay (float, optional): Delay between retries in seconds. Default is 0.1 seconds.
+
+    Returns:
+        list or None: Query results for SELECT queries, None for others.
+    """
+    attempts = 0
+    while attempts <= retries:
+        try:
+            conn = sqlite3.connect(db_path)
+            cursor = conn.cursor()
+            is_select_query = query.strip().lower().startswith("select")
+
+            if is_select_query:
+                cursor.execute(query, params or [])
+                results = cursor.fetchall()
+            else:
+                cursor.execute(query, params or [])
+                results = None
+
+            conn.commit()
+            conn.close()
+            if is_select_query:
+                return results
+
+            break  # Exit loop if query succeeds
+
+        except sqlite3.OperationalError as e:
+            if "database is locked" in str(e).lower():
+                attempts += 1
+                if attempts > retries:
+                    raise Exception(
+                        f"Database is locked after {retries} retries."
+                    ) from e
+                time.sleep(delay)  # Wait before retrying
+            else:
+                raise  # Raise other operational errors immediately
 
 
 class Database:
@@ -133,7 +164,7 @@ class Database:
         "Salt (rock, brines, marine)",
         "Selenium",
         "Silver",
-        "Steam Coal ",
+        # "Steam Coal ",
         "Sulfur (elementar & industrial)",
         "Talc, Steatite & Pyrophyllite",
         "Tantalum (Ta2O5)",
@@ -259,6 +290,17 @@ class Database:
                 tables = self.extract_tables_to_df(path, self.Tables_world_mining_data)
                 self.production = tables  # Store all tables in production
                 # print(f"Loaded tables: {self.production.keys()}")
+
+
+                # ## DEV ADDITION
+                # if "HS Code Map" in self.production:
+                #     self.production["HS Code Map"] = (
+                #         self.production["HS Code Map"]
+                #         .loc[self.production["HS Code Map"]["HS Code"] != "Not Available"]
+                #         .dropna(subset=["Symbol"])
+                #     )
+
+
             elif name == "wgi" and self.check_db_tables(path, self.Tables_wgi):
                 tables = self.extract_tables_to_df(path, self.Tables_wgi)
                 # print(f"Extracted tables from wgi.db: {tables.keys()}")  # Debug message
@@ -285,6 +327,7 @@ class Database:
         "Belgium-Luxembourg",
         "Bulgaria",
         "Croatia",
+        "Cyprus",
         "Czechia",
         "Czechoslovakia",
         "Denmark",
