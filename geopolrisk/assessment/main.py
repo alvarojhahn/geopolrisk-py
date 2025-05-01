@@ -34,86 +34,124 @@ def load_ei_mapping():
         ecoinvent_mapping = yaml.safe_load(file)["ecoinvent_mappings"]
     return ecoinvent_mapping
 
+def generate_create_table_sql(df: pd.DataFrame, table_name: str = "recordData") -> str:
+    type_map = {
+        "object": "TEXT",
+        "int64": "INTEGER",
+        "float64": "REAL",
+        "bool": "INTEGER"
+    }
+    columns = []
+    for col, dtype in df.dtypes.items():
+        coltype = type_map.get(str(dtype), "TEXT")
+        if col == "DBID":
+            columns.append(f"{col} TEXT PRIMARY KEY")
+        else:
+            columns.append(f'"{col}" {coltype}')
+    columns_clause = ",\n    ".join(columns)
+    return f"CREATE TABLE IF NOT EXISTS {table_name} (\n    {columns_clause}\n);"
+
 
 def gprs_calc(period: list, countries: list, resources: list, region_dict={}, db=None):
     """
-    A single aggregate function performs all calculations and exports the results as an Excel file.
+    Fast and correct GeoPolRisk calculation using filtered mapped_baci and pre-cached lookups.
     """
-
     if db is None:
         raise ValueError("Database instance is required!")
 
     ecoinvent_mapping = load_ei_mapping()
-
-    preprocessed_trade_data = preprocess_trade_data(period, resources, db)
     regions(region_dict, db)
 
+    # Pre-cache lookups
+    resource_name_map = {r: cvtresource(db=db, resource=r, type="Name") for r in resources}
+    resource_hs_map = {r: cvtresource(db=db, resource=r, type="HS") for r in resources}
+    country_name_map = {c: cvtcountry(db=db, country=c, type="Name") for c in countries}
+    country_iso_map = {c: cvtcountry(db=db, country=c, type="ISO") for c in countries}
+
+    # Load mapped_baci and cast types only once
+    df = mapped_baci(db).copy()
+    df["period"] = df["period"].astype(str)
+    df["reporterCode"] = df["reporterCode"].astype(str)
+    df["rawMaterial"] = df["rawMaterial"].astype(str)
+    df["qty"] = pd.to_numeric(df["qty"], errors="coerce")
+    df["cifvalue"] = pd.to_numeric(df["cifvalue"], errors="coerce")
+
+    # Pre-filter once by relevant periods and rawMaterials
+    relevant_resource_names = {resource_name_map[r] for r in resources}
+    relevant_periods = {str(p) for p in period}
+    df = df[df["period"].isin(relevant_periods) & df["rawMaterial"].isin(relevant_resource_names)]
+
+    # Set MultiIndex for fast slicing
+    df.set_index(["period", "reporterCode", "rawMaterial"], inplace=True)
+
     results = []
-    total_iterations = len(list(itertools.product(period, countries, resources)))
-    for year, importing_country, resource in tqdm(itertools.product(period, countries, resources), desc="Calculating the GeoPolRisk: ", unit="iterations", total=total_iterations):
+    total_iterations = len(period) * len(countries) * len(resources)
 
-        resource_hs = cvtresource(db=db, resource=resource, type="HS")
-
-        # Fetching ecoinvent mapping
-        mapping = ecoinvent_mapping.get(resource, {})
-        dataset_name = mapping.get("dataset_name", "Unknown")
-        dataset_reference_product = mapping.get("dataset_reference_product", "Unknown")
-        operator = mapping.get("operator", "Unknown")
-
-        # Filter global and relevant trade data
-        global_trade = preprocessed_trade_data[
-            (preprocessed_trade_data["period"] == year) &
-            (preprocessed_trade_data["cmdCode"] == str(resource_hs))
-        ]
-        relevant_trade_data = preprocessed_trade_data[
-            (preprocessed_trade_data["period"] == year) &
-            (preprocessed_trade_data["reporterCode"] == importing_country) &
-            (preprocessed_trade_data["cmdCode"] == str(resource))
-        ]
-
-        if global_trade.empty:
-            logging.debug(f"No global trade data for Year={year}, Resource={resource_hs}. Skipping...")
-            continue
-        if relevant_trade_data.empty:
-            # logging.debug(f"No relevant trade data for Year={year}, Importer={importing_country}. Skipping...")
+    for year, importing_country, resource in tqdm(
+            itertools.product(period, countries, resources),
+            total=total_iterations,
+            desc="Calculating GeoPolRisk:",
+            unit="iter"
+    ):
+        try:
+            resource_name = resource_name_map[resource]
+            resource_code = resource_hs_map[resource]
+            country_name = country_name_map[importing_country]
+            country_iso = str(country_iso_map[importing_country])
+            key_global = (str(year), slice(None), resource_name)
+            key_local = (str(year), country_iso, resource_name)
+        except Exception as e:
+            logging.debug(f"Skipping mapping error: {e}")
             continue
 
-        global_price = (
-            global_trade["cifvalue"].sum() / global_trade["qty"].sum()
-            if global_trade["qty"].sum() > 0 else 0
-        )
+        # Use .loc for fast indexed lookup
+        try:
+            global_trade = df.loc[key_global]
+            relevant_trade = df.loc[key_local]
+        except KeyError:
+            continue
 
-        exporters = relevant_trade_data["partnerDesc"].unique()
-        risk_results = importrisk(resource, year, importing_country, exporters, preprocessed_trade_data, global_price, db)
+        if global_trade.empty or relevant_trade.empty:
+            continue
+
+        global_price = global_trade["cifvalue"].sum() / global_trade["qty"].sum() if global_trade[
+                                                                                         "qty"].sum() > 0 else 0
+        exporters = relevant_trade["partnerDesc"].unique()
+
+        try:
+            risk_results = importrisk(resource_code, year, importing_country, exporters, df.reset_index(), global_price,
+                                      db)
+        except Exception as e:
+            logging.debug(f"importrisk failed: {e}")
+            continue
+
+        try:
+            prodqty, hhi = HHI(resource=resource_name, year=year, country=country_name, db=db)
+        except Exception as e:
+            logging.debug(f"HHI error: {e}")
+            continue
+
         if not risk_results:
-            logging.debug(f"No risk results for Year={year}, Importer={importing_country}, Resource={resource}. Skipping...")
             continue
 
-        # Extract country price from the first result of `importrisk`
         country_price = risk_results[0].get("CountryPrice", global_price)
-
-        prodqty, hhi = cached_HHI(resource=resource, year=year, db=db, country= importing_country)
-
-        denominator = relevant_trade_data["qty"].sum() + prodqty
-        if denominator <= 0:
-            logging.debug(f"Invalid denominator for Year={year}, Importer={importing_country}. Skipping...")
+        denom = relevant_trade["qty"].sum() + prodqty
+        if denom <= 0:
             continue
 
         global_numerator = 0
-        for risk in risk_results:
-            exporter = risk["Exporter"]
-            numerator = risk["Numerator"]
-
-            # Accumulate for global metrics
+        for r in risk_results:
+            exporter = r["Exporter"]
+            numerator = r["Numerator"]
             global_numerator += numerator
 
-            Score, CF, CF_norm, IR = GeoPolRisk(numerator, denominator, country_price, hhi, db=db)
+            Score, CF, CF_norm, IR = GeoPolRisk(numerator, denom, country_price, hhi, db=db)
             results.append({
                 "Year": year,
-                "Importing Country": cvtcountry(db=db, country=importing_country, type="Name"),
+                "Importing Country": country_name,
                 "Exporting Country": cvtcountry(db=db, country=exporter, type="Name"),
-                "Resource HS": resource,
-                "Resource Name": cvtresource(db=db, resource=resource, type="Name"),
+                "Resource HS": resource_code,
+                "Resource Name": resource_name,
                 "GeoPolRisk Score [-]": Score,
                 "GeoPolRisk Characterization Factor [USD/Kg]": CF,
                 "GeoPolRisk Characterization Factor Normalized to copper [-]": CF_norm,
@@ -121,37 +159,29 @@ def gprs_calc(period: list, countries: list, resources: list, region_dict={}, db
                 "Import Risk": IR,
                 "Global Price": global_price,
                 "Country Price": country_price,
-                "Dataset name": dataset_name,
-                "Dataset reference product": dataset_reference_product,
-                "operator": operator,
+                "Dataset name": ecoinvent_mapping.get(int(resource_code), {}).get("dataset_name", "Unknown"),
+                "Dataset reference product": ecoinvent_mapping.get(int(resource_code), {}).get(
+                    "dataset_reference_product", "Unknown"),
+                "operator": ecoinvent_mapping.get(int(resource_code), {}).get("operator", "Unknown"),
+                "DBID": create_id(resource_code, country_iso, year),
             })
 
-        # Add the "Global" row
-        if global_numerator  > 0:
-            Score_global, CF_global, CF_norm, IR_global = GeoPolRisk(global_numerator, denominator, country_price, hhi, db=db)
-            results.append({
-                "Year": year,
-                "Importing Country": cvtcountry(db=db, country=importing_country, type="Name"),
+        if global_numerator > 0:
+            Score_g, CF_g, CF_norm, IR_g = GeoPolRisk(global_numerator, denom, country_price, hhi, db=db)
+            row = results[-1].copy()
+            row.update({
                 "Exporting Country": "Global",
-                "Resource HS": resource,
-                "Resource Name": cvtresource(db=db, resource=resource, type="Name"),
-                "GeoPolRisk Score [-]": Score_global,
-                "GeoPolRisk Characterization Factor [USD/Kg]": CF_global,
-                "GeoPolRisk Characterization Factor Normalized to copper [-]": CF_norm,
-                "HHI": hhi,
-                "Import Risk": IR_global,
-                "Global Price": global_price,
-                "Country Price": country_price,
-                "Dataset name": dataset_name,
-                "Dataset reference product": dataset_reference_product,
-                "operator": operator,
+                "GeoPolRisk Score [-]": Score_g,
+                "GeoPolRisk Characterization Factor [USD/Kg]": CF_g,
+                "Import Risk": IR_g
             })
+            results.append(row)
 
-    # Save results to Excel
-    results_df = pd.DataFrame(results)
-    output_path = str(Path(db.output_directory) / "results.xlsx")
+    df_out = pd.DataFrame(results)
+    output_path = Path(db.output_directory) / "results.xlsx"
     try:
-        results_df.to_excel(output_path, index=False)
-        print(f"Results successfully saved to {output_path}")
+        df_out.to_excel(output_path, index=False)
+        print(f"Results saved to {output_path}")
     except Exception as e:
-        print(f"Error saving results to Excel: {e}")
+        print(f"Error saving Excel: {e}")
+

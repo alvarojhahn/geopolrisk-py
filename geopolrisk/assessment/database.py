@@ -19,11 +19,12 @@ import logging
 import time
 from tqdm import tqdm
 from datetime import datetime
-import importlib.resources
 from pathlib import Path
 import sys
 
 logging = logging
+
+databases = None
 
 
 # Generic SQL function (multi use)
@@ -292,13 +293,13 @@ class Database:
                 # print(f"Loaded tables: {self.production.keys()}")
 
 
-                # ## DEV ADDITION
-                # if "HS Code Map" in self.production:
-                #     self.production["HS Code Map"] = (
-                #         self.production["HS Code Map"]
-                #         .loc[self.production["HS Code Map"]["HS Code"] != "Not Available"]
-                #         .dropna(subset=["Symbol"])
-                #     )
+                ## DEV ADDITION
+                if "HS Code Map" in self.production:
+                    self.production["HS Code Map"] = (
+                        self.production["HS Code Map"]
+                        .loc[self.production["HS Code Map"]["HS Code"] != "Not Available"]
+                        .dropna(subset=["Symbol"])
+                    )
 
 
             elif name == "wgi" and self.check_db_tables(path, self.Tables_wgi):

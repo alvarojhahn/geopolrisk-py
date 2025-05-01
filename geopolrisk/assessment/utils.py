@@ -377,9 +377,11 @@ def aggregateTrade(filtered_data, year, countries, commoditycode, db=None):
 def preprocess_trade_data(periods, resources, db):
     """
     Preprocess trade data for faster lookups.
-    Returns a DataFrame filtered by periods and resources.
+    Returns a DataFrame filtered by periods and resources,
+    with all key columns cast to numeric.
     """
-    if not hasattr(db, "baci_trade") or db.baci_trade is None:
+    # Ensure baci_trade is loaded
+    if not getattr(db, "baci_trade", None):
         logging.debug("Loading 'baci_trade' dynamically.")
         db.baci_trade = db.load_databases()["baci"]["baci_trade"]
 
@@ -387,28 +389,29 @@ def preprocess_trade_data(periods, resources, db):
         logging.error("The 'baci_trade' table is missing or empty.")
         raise RuntimeError("Database is missing required table: baci_trade")
 
-    # Filter relevant rows for requested periods and resources
-    resource_codes = [str(cvtresource(db=db, resource=rm, type="HS")) for rm in resources]
-    filtered_data = db.baci_trade[
-        db.baci_trade["period"].isin(map(str, periods)) &
-        db.baci_trade["cmdCode"].isin(resource_codes)
-        ]
+    # Map each resource to its integer HS code
+    hs_codes = {int(cvtresource(db=db, resource=rm, type="HS")) for rm in resources}
 
-    if filtered_data.empty:
-        logging.warning("Filtered trade data is empty. Verify inputs.")
-    else:
-        logging.debug(f"Filtered trade data size: {len(filtered_data)} rows.")
+    # Filter by period and HS code
+    df = db.baci_trade
+    df = df[
+        df["period"].astype(int).isin(periods) &
+        df["cmdCode"].astype(int).isin(hs_codes)
+    ]
 
-    filtered_data = filtered_data.assign(
-        period=pd.to_numeric(filtered_data["period"], errors="coerce"),
-        reporterCode=pd.to_numeric(filtered_data["reporterCode"], errors="coerce"),
-        partnerCode=pd.to_numeric(filtered_data["partnerCode"], errors="coerce"),
-        cmdCode=filtered_data["cmdCode"].astype(str),
-        cifvalue=pd.to_numeric(filtered_data["cifvalue"], errors="coerce"),
-        qty=pd.to_numeric(filtered_data["qty"], errors="coerce"),
+    # Cast all relevant columns once
+    df = df.assign(
+        period=df["period"].astype(int),
+        reporterCode=df["reporterCode"].astype(int),
+        partnerCode=df["partnerCode"].astype(int),
+        cmdCode=df["cmdCode"].astype(int),
+        qty=pd.to_numeric(df["qty"].apply(replace_func), errors="coerce"),
+        cifvalue=pd.to_numeric(df["cifvalue"].apply(replace_func), errors="coerce"),
+        partnerWGI=pd.to_numeric(df.get("partnerWGI", 0), errors="coerce"),
     )
 
-    return filtered_data
+    return df
+
 
 
 def preprocess_production_data(resources, periods, db):
@@ -569,3 +572,100 @@ def regions(region_dict, db):
     for i in db.production["Country_ISO"]["Country"].tolist():
         if i not in db.regionslist:
             db.regionslist[i] = [i]
+
+########################################################
+##   Mapping Functions - GeoPolRisk ##
+########################################################
+
+def Mapping(db):
+    """
+    Creates a dictionary mapping 'Reference ID' to a list of HS Codes.
+    Extracts data from 'HS Code Map' in 'databases.production' and ensures data validity.
+    Returns an empty dictionary in case of errors.
+    """
+    try:
+        hs_map_df = db.production.get("HS Code Map")
+        if hs_map_df is None or hs_map_df.empty:
+            logging.debug("HS Code Map dataset is empty or missing.")
+            return {}
+
+        hs_map = {}
+
+        for _, row in hs_map_df.iterrows():
+            try:
+                hs_codes = [int(row["HS Code"])]
+
+                if pd.notna(row.get("HS Code - Complementary")) and row["HS Code - Complementary"]:
+                    codes = row["HS Code - Complementary"].split(";")
+                    hs_codes.extend([int(code.strip()) for code in codes if code.strip().isdigit()])
+
+                hs_map[row["ID"]] = list(set(hs_codes))
+
+            except (ValueError, KeyError) as e:
+                logging.debug(f"Skipping row due to error: {e} | Row content: {row}")
+
+        return hs_map
+
+    except Exception as e:
+        logging.debug(f"Unexpected error in Mapping(): {e}")
+        return {}
+
+
+def mapped_baci(db):
+    """
+    This function processes trade data by mapping commodity codes to raw materials.
+    It aggregates trade information (such as quantities and CIF values) for each raw material,
+    while handling cases where multiple commodity codes exist for a raw material.
+    The function will group trade data by raw material, period, and other relevant fields,
+    summing quantities and CIF values, and concatenating commodity codes where applicable.
+    """
+    try:
+        hs_map = Mapping(db)
+        if not hs_map:
+            logging.debug("No HS mapping available. Returning empty DataFrame.")
+            return pd.DataFrame()
+
+        master_data = []
+        for raw_material, codes in hs_map.items():
+            if db.baci_trade is None:
+                logging.debug("Loading 'baci_trade' dynamically.")
+                db.baci_trade = db.load_databases()["baci"]["baci_trade"]
+
+            temp = db.baci_trade.copy()
+            temp = temp[temp["cmdCode"].astype(int).isin(codes)]
+            if temp.empty:
+                logging.debug(f"No trade data found for raw material {raw_material}.")
+                continue
+
+            temp["rawMaterial"] = raw_material
+            temp["cmdCode"] = temp["cmdCode"].astype(int)
+            temp["qty"] = pd.to_numeric(temp["qty"].apply(replace_func), errors="coerce")
+            temp["cifvalue"] = pd.to_numeric(temp["cifvalue"].apply(replace_func), errors="coerce")
+
+            grouped_data = temp.groupby(
+                ["period", "reporterCode", "reporterDesc", "reporterISO",
+                 "partnerCode", "partnerDesc", "partnerISO", "rawMaterial"],
+                as_index=False
+            ).agg({
+                "cmdCode": lambda x: ";".join(map(str, sorted(set(x)))),
+                "qty": "sum",
+                "cifvalue": "sum",
+                "partnerWGI": "first"
+            })
+
+            master_data.append(grouped_data)
+
+        if not master_data:
+            logging.debug("No trade data matched the HS mappings.")
+            return pd.DataFrame()
+
+        return pd.concat(master_data, ignore_index=True)
+
+    except Exception as e:
+        logging.debug(f"Error in mapped_baci(): {e}")
+        return pd.DataFrame()
+
+
+def default_rmlist(db):
+    hs_map = Mapping(db)
+    return list(hs_map.keys())

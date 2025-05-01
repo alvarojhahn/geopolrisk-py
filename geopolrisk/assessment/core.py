@@ -110,10 +110,10 @@ def importrisk(resource: int, year: int, importing_country: str, exporting_count
         importer_iso = cvtcountry(db=db, country=importing_country, type="ISO")
 
         country_trade_data = trade_data[
-            (trade_data["period"] == year) &
-            (trade_data["reporterCode"] == importer_iso) &
-            (trade_data["cmdCode"] == str(resource))
-        ]
+            (trade_data["period"] == str(year)) &
+            (trade_data["reporterCode"] == str(importer_iso)) &
+            trade_data["cmdCode"].str.contains(str(resource), na=False)
+            ]
 
         if not country_trade_data.empty:
             country_trade_data.loc[:, "qty"] = country_trade_data["qty"].apply(replace_func).astype(float)
@@ -134,11 +134,11 @@ def importrisk(resource: int, year: int, importing_country: str, exporting_count
                 exporter_iso = cvtcountry(db=db, country=exporter, type="ISO")
 
                 tradedf = trade_data[
-                    (trade_data["period"] == year) &
-                    (trade_data["reporterCode"] == importer_iso) &
-                    (trade_data["partnerCode"] == exporter_iso) &
-                    (trade_data["cmdCode"] == str(resource))
-                ]
+                    (trade_data["period"] == str(year)) &
+                    (trade_data["reporterCode"] == str(importer_iso)) &
+                    (trade_data["partnerCode"] == str(exporter_iso)) &
+                    trade_data["cmdCode"].str.contains(str(resource), na=False)
+                    ]
 
                 if tradedf.empty:
                     logging.debug(
