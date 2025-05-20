@@ -17,6 +17,7 @@ from typing import Union
 from .database import logging
 from .utils import *
 from functools import lru_cache
+import pandas as pd
 
 
 def HHI(resource: Union[str, int], year: int, db, country=None):
@@ -87,90 +88,68 @@ def cached_HHI(resource, year, db, country):
         logging.debug(f"HHI calculation failed: {e}")
         return 0, 0
 
-def importrisk(resource: int, year: int, importing_country: str, exporting_country: list, trade_data, global_price, db):
-    """
-    Calculates the import risk for exporting-importing country pairs and aggregated values.
-    """
-    results = []
 
-    def replace_func(x):
-        """Ensure qty values are numeric and replace invalid entries."""
+def importrisk(resource_name: str,
+               year: int,
+               importing_country: str,
+               db,
+               hs_map=None,
+               baci=None,):
+    """
+    Returns per-exporter Numerator, TotalTrade, and shared CountryPrice.
+    """
+
+    def fix_wgi(x):
         try:
-            return float(x) if x is not None and x != "NA" else 0.0
-        except (ValueError, TypeError):
-            return 0.0
+            if x is None or str(x).strip() == "NA":
+                return 0.5
+            return float(x)
+        except:
+            return 0.5
 
-    def wgi_func(x):
-        """Assign a default WGI value for missing data."""
-        if isinstance(x, float):
-            return x
-        return 0.5 if x is None or isinstance(x, type(None)) or x.strip() == "NA" else x
+    results = []
+    if hs_map is None:
+        hs_map = Mapping(db)
+    if baci is None:
+        baci = mapped_baci(db)
+    else:
+        baci = baci.copy()
 
-    try:
-        importer_iso = cvtcountry(db=db, country=importing_country, type="ISO")
+    hs_codes = hs_map.get(resource_name, [])
+    if not hs_codes:
+        logging.debug(f"No HS codes mapped for resource: {resource_name}")
+        return [], 0.0, 0.0
 
-        country_trade_data = trade_data[
-            (trade_data["period"] == str(year)) &
-            (trade_data["reporterCode"] == str(importer_iso)) &
-            trade_data["cmdCode"].str.contains(str(resource), na=False)
-            ]
+    # importer_iso = int(cvtcountry(db=db, country=importing_country, type="ISO"))
 
-        if not country_trade_data.empty:
-            country_trade_data.loc[:, "qty"] = country_trade_data["qty"].apply(replace_func).astype(float)
-            country_trade_data.loc[:, "cifvalue"] = country_trade_data["cifvalue"].apply(replace_func).astype(
-                float)
+    if not hasattr(db, "baci_trade") or db.baci_trade is None:
+        db.baci_trade = db.load_databases()["baci"]["baci_trade"]
 
-            total_qty = country_trade_data["qty"].sum()
-            total_val = country_trade_data["cifvalue"].sum()
-            country_price = total_val / total_qty if total_qty > 0 else 0.0
+    if baci.empty:
+        logging.debug(f"No BACI data for: {resource_name}, {year}, {importing_country}")
+        return [], 0.0, 0.0
 
-        else:
-            country_price = 0.0
-            logging.debug(
-                f"No trade data found for Year={year}, Importing Country={importing_country}. Country Price set to 0.")
+    baci["qty"] = pd.to_numeric(baci["qty"].apply(replace_func), errors="coerce")
+    baci["cifvalue"] = pd.to_numeric(baci["cifvalue"].apply(replace_func), errors="coerce")
+    baci["partnerWGI"] = baci["partnerWGI"].apply(fix_wgi)
 
-        for exporter in exporting_country:
-            try:
-                exporter_iso = cvtcountry(db=db, country=exporter, type="ISO")
+    total_qty = baci["qty"].sum()
+    total_val = baci["cifvalue"].sum()
+    country_price = total_val / total_qty if total_qty > 0 else 0.0
 
-                tradedf = trade_data[
-                    (trade_data["period"] == str(year)) &
-                    (trade_data["reporterCode"] == str(importer_iso)) &
-                    (trade_data["partnerCode"] == str(exporter_iso)) &
-                    trade_data["cmdCode"].str.contains(str(resource), na=False)
-                    ]
+    baci = baci[(baci["qty"] > 0) & (baci["partnerWGI"].notnull())].copy()
+    for exp_iso, grp in baci.groupby("partnerCode"):
+        exporter = exp_iso
+        numerator = (grp["qty"] * grp["partnerWGI"]).sum()
+        total_trade = grp["qty"].sum()
+        results.append({
+            "Exporter": exporter,
+            "Numerator": numerator,
+            "TotalTrade": total_trade,
+        })
 
-                if tradedf.empty:
-                    logging.debug(
-                        f"No trade data for Exporter={exporter}, Year={year}, Resource={resource}. Skipping...")
-                    continue
 
-                tradedf.loc[:, "qty"] = tradedf["qty"].apply(replace_func).astype(float)
-                tradedf.loc[:, "cifvalue"] = tradedf["cifvalue"].apply(replace_func).astype(float)
-                tradedf.loc[:, "partnerWGI"] = tradedf["partnerWGI"].apply(wgi_func).astype(float)
-
-                QTY = tradedf["qty"].tolist()
-                WGI = tradedf["partnerWGI"].tolist()
-
-                trade = sum(QTY)
-                numerator = sumproduct(QTY, WGI)
-
-                results.append({
-                    "Exporter": exporter,
-                    "Numerator": numerator,
-                    "TotalTrade": trade,
-                    "GlobalPrice": global_price,
-                    "CountryPrice": country_price,
-                })
-
-            except Exception as e:
-                logging.debug(
-                    f"Error while calculating import risk: {e}, Resource: {resource}, Importing Country: {importing_country}, Year: {year}")
-
-    except Exception as e:
-        logging.debug(f"Error while calculating import risk: {e}, Resource: {resource}, Importing Country: {importing_country}, Year: {year}")
-
-    return results
+    return results, total_qty, country_price
 
 
 def importrisk_company(resource: int, year: int):
@@ -203,24 +182,23 @@ def importrisk_company(resource: int, year: int):
 
 def GeoPolRisk(numerator, denominator, price, hhi, db):
     """
-    Calculates the GeoPolRisk Score and Characterization Factor.
+    Calculates GeoPolRisk Score, CF, normalized CF, and Import Risk (WTA).
     """
     try:
         if denominator <= 0:
-            return 0, 0, 0  # Default values
+            return 0, 0, 0, 0
 
-
-        CF_Cu = 0.409412948
+        CF_Cu = 0.409412948  # Reference CF for copper [USD/kg]
 
         WTA = numerator / denominator
-        hhi = hhi if hhi is not None else 0  # Fallback for missing HHI
         Score = hhi * WTA
-        CF = (Score * price) if price > 0 else 0
-        CF_norm = CF / CF_Cu
+        CF = Score * price
+        CF_norm = CF / CF_Cu if CF > 0 else 0
+
+        return Score, CF, CF_norm, WTA
 
     except Exception as e:
-        logging.debug(f"Error in GeoPolRisk. Inputs: {locals()}, Error: {e}")
-        return 0, 0, 0
+        logging.debug(f"Error in GeoPolRisk: {e}, Inputs: {locals()}")
+        return 0, 0, 0, 0
 
-    return Score, CF, CF_norm, WTA
 

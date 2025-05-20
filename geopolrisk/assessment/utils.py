@@ -38,7 +38,6 @@ def replace_func(x):
         else:
             return x
 
-
 def cvtresource(db, resource, type="HS"):
     # Function to convert resource inputs, HS to name or name to HS
     """
@@ -524,17 +523,25 @@ def transformdata(db, mode="prod"):
 
 
 def getProd(resource, db):
-    Mapdf = db.production["HS Code Map"]
-    if resource in Mapdf["ID"].tolist():
-        MappedTableName = Mapdf.loc[Mapdf["ID"] == resource, "Sheet_name"]
-    elif str(resource) in Mapdf["HS Code"].tolist() and resource != "Not Available":
-        MappedTableName = Mapdf.loc[Mapdf["HS Code"] == str(resource), "Sheet_name"]
-    else:
-        logging.debug(f"Resource {resource} not found in HS Code Map!")
-        raise ValueError(f"Resource {resource} not found in HS Code Map!")
+    """
+    Fetch the production table for a given resource symbol.
+    """
+    # Use HS Code Map to map Symbol to full table name
+    hs_map = db.production.get("HS Code Map")
+    if hs_map is None or hs_map.empty:
+        raise ValueError("HS Code Map is missing in the database.")
 
-    result = db.production[MappedTableName.iloc[0]]
-    return result
+    # Find full table name from symbol
+    match = hs_map[hs_map["Symbol"] == resource]
+    if match.empty:
+        raise ValueError(f"No match found in HS Code Map for symbol: {resource}")
+
+    table_name = match["Sheet_name"].iloc[0]
+    if table_name not in db.production:
+        raise ValueError(f"Production table '{table_name}' not found in database.")
+
+    return db.production[table_name]
+
 
 
 ########################################################
@@ -577,93 +584,120 @@ def regions(region_dict, db):
 ##   Mapping Functions - GeoPolRisk ##
 ########################################################
 
+# def Mapping(db):
+#     """
+#     Creates a dictionary mapping 'Reference ID' to a list of HS Codes.
+#     Extracts data from 'HS Code Map' in 'databases.production' and ensures data validity.
+#     Returns an empty dictionary in case of errors.
+#     """
+#     try:
+#         hs_map_df = db.production.get("HS Code Map")
+#         if hs_map_df is None or hs_map_df.empty:
+#             logging.debug("HS Code Map dataset is empty or missing.")
+#             return {}
+#
+#         hs_map = {}
+#
+#         for _, row in hs_map_df.iterrows():
+#             try:
+#                 hs_codes = [int(row["HS Code"])]
+#
+#                 if pd.notna(row.get("HS Code - Complementary")) and row["HS Code - Complementary"]:
+#                     codes = row["HS Code - Complementary"].split(";")
+#                     hs_codes.extend([int(code.strip()) for code in codes if code.strip().isdigit()])
+#
+#                 hs_map[row["ID"]] = list(set(hs_codes))
+#
+#             except (ValueError, KeyError) as e:
+#                 logging.debug(f"Skipping row due to error: {e} | Row content: {row}")
+#
+#         return hs_map
+#
+#     except Exception as e:
+#         logging.debug(f"Unexpected error in Mapping(): {e}")
+#         return {}
+
 def Mapping(db):
     """
-    Creates a dictionary mapping 'Reference ID' to a list of HS Codes.
-    Extracts data from 'HS Code Map' in 'databases.production' and ensures data validity.
-    Returns an empty dictionary in case of errors.
+    Returns a dictionary: {resource_symbol: [hs_code1, hs_code2, ...]}
+    based on the HS Code Map table in the production database.
     """
     try:
-        hs_map_df = db.production.get("HS Code Map")
-        if hs_map_df is None or hs_map_df.empty:
-            logging.debug("HS Code Map dataset is empty or missing.")
+        df = db.production.get("HS Code Map")
+
+        if df is None or df.empty:
+            logging.debug("HS Code Map is missing or empty.")
             return {}
 
         hs_map = {}
 
-        for _, row in hs_map_df.iterrows():
+        for _, row in df.iterrows():
             try:
-                hs_codes = [int(row["HS Code"])]
+                resource = row["Symbol"].strip()
+                # resource = row["Reference ID"].strip()
 
-                if pd.notna(row.get("HS Code - Complementary")) and row["HS Code - Complementary"]:
-                    codes = row["HS Code - Complementary"].split(";")
-                    hs_codes.extend([int(code.strip()) for code in codes if code.strip().isdigit()])
+                hs_codes = []
+                # Primary HS code
+                if pd.notna(row["HS Code"]):
+                    hs_codes.append(int(str(row["HS Code"]).strip()))
 
-                hs_map[row["ID"]] = list(set(hs_codes))
+                # Complementary HS codes
+                comp = row.get("HS Code - Complementary")
+                if pd.notna(comp) and isinstance(comp, str) and comp.lower() != "none":
+                    hs_codes.extend([int(c.strip()) for c in comp.split(";") if c.strip().isdigit()])
 
-            except (ValueError, KeyError) as e:
-                logging.debug(f"Skipping row due to error: {e} | Row content: {row}")
+                if hs_codes:
+                    hs_map[resource] = list(set(hs_codes))  # de-duplicate
+            except Exception as e:
+                logging.debug(f"Skipping row due to error: {e}")
 
         return hs_map
 
     except Exception as e:
-        logging.debug(f"Unexpected error in Mapping(): {e}")
+        logging.debug(f"Mapping error: {e}")
         return {}
 
 
+
+# def mapped_baci(db):
+#     """
+#     Returns BACI trade data with an extra 'rawMaterial' column mapped from HS codes.
+#     """
+#     if not hasattr(db, "baci_trade") or db.baci_trade is None:
+#         raise ValueError("BACIdata not loaded. Run db.initialize() first.")
+#
+#     baci = db.baci_trade.copy()
+#     hs_map = Mapping(db)  # Efficient if already cached in your main
+#     hs_to_rm = {hs: rm for rm, codes in hs_map.items() for hs in codes}
+#
+#     baci["cmdCode"] = pd.to_numeric(baci["cmdCode"], errors="coerce").astype("Int64")
+#     baci["rawMaterial"] = baci["cmdCode"].map(hs_to_rm)
+#
+#     # Filter out entries without a valid rawMaterial mapping
+#     return baci.dropna(subset=["rawMaterial"])
+
 def mapped_baci(db):
     """
-    This function processes trade data by mapping commodity codes to raw materials.
-    It aggregates trade information (such as quantities and CIF values) for each raw material,
-    while handling cases where multiple commodity codes exist for a raw material.
-    The function will group trade data by raw material, period, and other relevant fields,
-    summing quantities and CIF values, and concatenating commodity codes where applicable.
+    Returns BACI trade data with an extra 'rawMaterial' column mapped from HS codes.
     """
-    try:
-        hs_map = Mapping(db)
-        if not hs_map:
-            logging.debug("No HS mapping available. Returning empty DataFrame.")
-            return pd.DataFrame()
+    if hasattr(db, "_cached_mapped_baci"):
+        return db._cached_mapped_baci  # Return cached version
 
-        master_data = []
-        for raw_material, codes in hs_map.items():
-            if db.baci_trade is None:
-                logging.debug("Loading 'baci_trade' dynamically.")
-                db.baci_trade = db.load_databases()["baci"]["baci_trade"]
+    if not hasattr(db, "baci_trade") or db.baci_trade is None:
+        raise ValueError("BACIdata not loaded. Run db.initialize() first.")
 
-            temp = db.baci_trade.copy()
-            temp = temp[temp["cmdCode"].astype(int).isin(codes)]
-            if temp.empty:
-                logging.debug(f"No trade data found for raw material {raw_material}.")
-                continue
+    baci = db.baci_trade.copy()
+    hs_map = Mapping(db)
+    hs_to_rm = {hs: rm for rm, codes in hs_map.items() for hs in codes}
 
-            temp["rawMaterial"] = raw_material
-            temp["cmdCode"] = temp["cmdCode"].astype(int)
-            temp["qty"] = pd.to_numeric(temp["qty"].apply(replace_func), errors="coerce")
-            temp["cifvalue"] = pd.to_numeric(temp["cifvalue"].apply(replace_func), errors="coerce")
+    baci["cmdCode"] = pd.to_numeric(baci["cmdCode"], errors="coerce").astype("Int64")
+    baci["rawMaterial"] = baci["cmdCode"].map(hs_to_rm)
+    mapped = baci.dropna(subset=["rawMaterial"])
 
-            grouped_data = temp.groupby(
-                ["period", "reporterCode", "reporterDesc", "reporterISO",
-                 "partnerCode", "partnerDesc", "partnerISO", "rawMaterial"],
-                as_index=False
-            ).agg({
-                "cmdCode": lambda x: ";".join(map(str, sorted(set(x)))),
-                "qty": "sum",
-                "cifvalue": "sum",
-                "partnerWGI": "first"
-            })
+    db._cached_mapped_baci = mapped  # Store cached version
+    return mapped
 
-            master_data.append(grouped_data)
 
-        if not master_data:
-            logging.debug("No trade data matched the HS mappings.")
-            return pd.DataFrame()
-
-        return pd.concat(master_data, ignore_index=True)
-
-    except Exception as e:
-        logging.debug(f"Error in mapped_baci(): {e}")
-        return pd.DataFrame()
 
 
 def default_rmlist(db):

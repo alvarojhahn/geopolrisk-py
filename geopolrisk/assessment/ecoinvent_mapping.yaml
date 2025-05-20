@@ -1,5 +1,5 @@
 ecoinvent_mappings:
-  260600:
+  Al:
     resource_name: "Aluminium"
     dataset_name: "aluminium production, primary"
     dataset_reference_product: "aluminium, primary"
