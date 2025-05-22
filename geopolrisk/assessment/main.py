@@ -14,12 +14,25 @@
 
 import itertools
 from tqdm import tqdm
-from .database import databases, logging
+from .database import logging
 from .core import *
 from .utils import *
+from pathlib import Path
+import yaml
+import pandas as pd
+from geopolrisk.assessment.utils import regions
 
+def load_ei_mapping():
+    script_dir = Path(__file__).resolve().parent
+    yaml_path = script_dir / "ecoinvent_mapping.yaml"
+    with open(yaml_path, "r") as file:
+        return yaml.safe_load(file)["ecoinvent_mappings"]
 
-def gprs_calc(period: list, country: list, rawmaterial: list, region_dict={}):
+def gprs_calc(period: list,
+              countries: list,
+              rawmaterial: list,
+              region_dict={},
+              db=None):
     """
     A single aggregate function performs all calculations and exports the results as an Excel file.
     The inputs include a list of years, a list of countries,
@@ -34,121 +47,188 @@ def gprs_calc(period: list, country: list, rawmaterial: list, region_dict={}):
         'West Europe': ['France', 'Germany', 'Italy', 'Spain', 'Portugal', 'Belgium', 'Netherlands', 'Luxembourg']
         }.
     """
-    database = mapped_baci()
-    Score_list, CF_list = [], []
-    hhi_list, ir_list, price_list = [], [], []
-    dbid = []
-    ctry_db, rm_db, period_db = [], [], []
-    regions(region_dict)  # Function to define region
-    for year, ctry, rm in tqdm(
-        list(itertools.product(period, country, rawmaterial)),
-        desc="Calculating the GeoPolRisk: ",
+    if db is None:
+        raise ValueError("Database instance is required!")
+
+    hs_map = Mapping(db)
+    ecoinvent_mapping = load_ei_mapping()
+    regions(region_dict, db)
+
+    resource_name_map = {r: r for r in rawmaterial}
+    resource_hs_map = {r: ";".join(map(str, hs_map.get(r, []))) for r in rawmaterial}
+    country_name_map = {c: cvtcountry(db=db, country=c, type="Name") for c in countries}
+    country_iso_map = {c: str(cvtcountry(db=db, country=c, type="ISO")) for c in countries}
+
+    raw_baci = mapped_baci(db)
+    raw_baci["cmdCode"] = pd.to_numeric(raw_baci["cmdCode"], errors="coerce")
+    df = raw_baci.copy()
+    df["period"] = df["period"].astype(str)
+    df["reporterCode"] = df["reporterCode"].astype(str)
+    df["rawMaterial"] = df["rawMaterial"].astype(str)
+    df["qty"] = pd.to_numeric(df["qty"], errors="coerce")
+    df["cifvalue"] = pd.to_numeric(df["cifvalue"], errors="coerce")
+
+    relevant_periods = {str(p) for p in period}
+    relevant_materials = {resource_name_map[r] for r in rawmaterial}
+    df = df[df["period"].isin(relevant_periods) & df["rawMaterial"].isin(relevant_materials)].copy()
+    df.set_index(["period", "reporterCode", "rawMaterial"], inplace=True)
+    df.sort_index(inplace=True)
+
+    results = []
+    total_iterations = len(period) * len(countries) * len(rawmaterial)
+
+    for year, importer, resource in tqdm(
+            itertools.product(period, countries, rawmaterial),
+            total=total_iterations,
+            desc="Calculating GeoPolRisk:",
+            unit="iter"
     ):
-        if len(databases.regionslist[cvtcountry(ctry, type="Name")]) > 1:
-            logging.debug("Logged - Multiregional Assessment")
-            try:
-                Numerator, TotalTrade, Price = aggregateTrade(
-                    year, databases.regionslist[ctry], rm, data=database
-                )
-            except ValueError:
-                logging.debug(
-                    "Couldnt calculate the Import Risk - Regional. Check functional error!"
-                )
-                break
-            except Exception as e:
-                logging.debug("Unknwon exception at ", e)
-                break
-            try:
-                sum_ProdQty = []
-                for j in databases.regionslist[ctry]:
-                    ProdQty, hhi = HHI(rm, int(year), cvtcountry(j, type="Name"))
-                    sum_ProdQty.append(ProdQty)
-
-            except ValueError:
-                logging.debug(
-                    "Couldnt calculate the HHI and Production Quantity - Regional. Check functional error!"
-                )
-                break
-            except Exception as e:
-                logging.debug("Unknwon exception at ", e)
-                break
-            try:
-                Score, CF, IR = GeoPolRisk(
-                    Numerator, TotalTrade, Price, sum(sum_ProdQty), hhi
-                )
-            except ValueError:
-                logging.debug(
-                    "Couldnt calculate the GeoPolRisk - Regional. Check functional error!"
-                )
-                break
-            except Exception as e:
-                logging.debug("Unknwon exception at ", e)
-                break
-        else:
-            try:
-                ProdQty, hhi = HHI(rm, int(year), cvtcountry(ctry, type="Name"))
-            except ValueError:
-                logging.debug("Couldnt calculate the HHI. Check functional error!")
-                break
-            except Exception as e:
-                logging.debug("Unknwon exception at ", e)
-                break
-            try:
-                Numerator, TotalTrade, Price = importrisk(
-                    rm,
-                    year,
-                    databases.regionslist[cvtcountry(ctry, type="Name")],
-                    database,
-                )
-            except ValueError:
-                logging.debug(
-                    "Couldnt calculate the Import Risk. Check functional error!"
-                )
-                break
-            except Exception as e:
-                logging.debug("Unknwon exception at ", e)
-                break
-            try:
-                Score, CF, IR = GeoPolRisk(Numerator, TotalTrade, Price, ProdQty, hhi)
-            except ValueError:
-                logging.debug(
-                    "Couldnt calculate the GeoPolRisk. Check functional error!"
-                )
-                break
-            except Exception as e:
-                logging.debug("Unknwon exception at ", e)
-                break
         try:
-            Score_list.append(Score)
-            CF_list.append(CF)
-            hhi_list.append(hhi)
-            ir_list.append(IR)
-            price_list.append(Price)
-            ctry_db.append(cvtcountry(ctry, type="Name"))
-            rm_db.append(rm)
-            period_db.append(year)
-            dbid.append(create_id(rm, cvtcountry(ctry, type="ISO"), year))
+            year_str = str(year)
+            resource_name = resource_name_map[resource]
+            resource_hs = resource_hs_map[resource]
+            importer_name = country_name_map[importer]
+            importer_iso = country_iso_map[importer]
+            if db.regional and importer in db.regionslist:
+                importer_isos = [str(cvtcountry(db=db, country=c, type="ISO")) for c in db.regionslist[importer]]
+                key_local = [(year_str, iso, resource_name) for iso in importer_isos]
+            else:
+                key_local = [(year_str, importer_iso, resource_name)]
+            key_global = (year_str, slice(None), resource_name)
         except Exception as e:
-            logging.debug("Error while recording data for non regional assessment!", e)
-    result = createresultsdf()
-    try:
-        result["DBID"] = dbid
-        result["Country [Economic Entity]"] = ctry_db
-        result["Raw Material"] = rm_db
-        result["Year"] = period_db
-        result["GeoPolRisk Score"] = Score_list
-        result["GeoPolRisk Characterization Factor [eq. Kg-Cu/Kg]"] = CF_list
-        result["HHI"] = hhi_list
-        result["Import Risk"] = ir_list
-        result["Price"] = price_list
+            logging.debug(f"Mapping error, skipping iteration: {e}")
+            continue
 
-        excel_path = databases.directory + "/output/results.xlsx"
-        result.to_excel(excel_path, index=False)
-        writetodb(result)
-        # add return result for test-cases
-        # return result
+        try:
+            if db.regional and importer in db.regionslist:
+                local_trades = [
+                    df.loc[(year_str, str(cvtcountry(db=db, country=c, type="ISO")), resource_name)]
+                    for c in db.regionslist[importer]
+                    if (year_str, str(cvtcountry(db=db, country=c, type="ISO")), resource_name) in df.index
+                ]
+
+                if not local_trades:
+                    continue
+
+                local_trade = pd.concat(local_trades)
+            else:
+                local_trade = df.loc[key_local]
+            global_trade = df.loc[key_global]
+        except KeyError:
+            continue
+
+        if local_trade.empty or global_trade.empty:
+            continue
+
+        global_price = global_trade["cifvalue"].sum() / global_trade["qty"].sum() if global_trade[
+                                                                                         "qty"].sum() > 0 else 0
+
+        if db.regional and importer in db.regionslist:
+            region_isos = [str(cvtcountry(db=db, country=ctry, type="ISO")) for ctry in db.regionslist[importer]]
+            reporter_mask = raw_baci["reporterCode"].astype(str).isin(region_isos)
+
+            baci_slice = raw_baci[
+                (raw_baci["period"].astype(str) == year_str) &
+                reporter_mask &
+                (raw_baci["cmdCode"].isin(hs_map.get(resource_name, [])))
+                ].copy()
+
+            baci_slice.loc[baci_slice["partnerCode"].astype(str).isin(region_isos), "partnerWGI"] = 0.0
+        else:
+            reporter_mask = raw_baci["reporterCode"].astype(str) == importer_iso
+
+            baci_slice = raw_baci[
+                (raw_baci["period"].astype(str) == year_str) &
+                reporter_mask &
+                (raw_baci["cmdCode"].isin(hs_map.get(resource_name, [])))
+                ].copy()
+
+        try:
+            risk_results, total_import_qty, country_price = importrisk(
+                rawmaterial=resource_name,
+                year=year,
+                importing_country=importer,
+                db=db,
+                hs_map=hs_map,
+                baci=baci_slice,
+            )
+        except Exception as e:
+            logging.debug(f"importrisk failed: {e}")
+            continue
+
+        try:
+            prodqty, hhi = cached_HHI(resource_name, year, importer_name, db)
+        except Exception as e:
+            logging.debug(f"HHI failed: {e}")
+            continue
+
+        if not risk_results:
+            continue
+
+        denom = total_import_qty + prodqty
+        if denom <= 0:
+            continue
+
+        total_score = 0
+        total_ir = 0
+
+        all_exporters = set(raw_baci["partnerCode"].unique())
+        exporter_name_map = {}
+        for code in all_exporters:
+            try:
+                if str(code).isdigit():
+                    name = cvtcountry(db=db, country=int(code), type="Name")
+                    exporter_name_map[code] = name
+            except Exception as e:
+                logging.debug(f"[Exporter Mapping] Skipping code {code}: {e}")
+                continue
+
+        for r in risk_results:
+            if r["Numerator"] <= 0:
+                continue
+
+            exporter = r["Exporter"]
+            numerator = r["Numerator"]
+            total_ir += numerator
+            Score, CF, CF_norm, IR = GeoPolRisk(numerator, denom, country_price, hhi, db=db)
+            total_score += Score
+
+            results.append({
+                "Year": year,
+                "Importing Country": importer if db.regional and importer in db.regionslist else importer_name,
+                "Exporting Country": exporter_name_map.get(exporter, "Unknown"),
+                "Resource HS": resource_hs,
+                "Resource Name": resource_name,
+                "GeoPolRisk Score [-]": Score,
+                "GeoPolRisk Characterization Factor [USD/Kg]": CF,
+                "GeoPolRisk Characterization Factor Normalized to copper [-]": CF_norm,
+                "HHI": hhi,
+                "Import Risk": IR,
+                "Global Price": global_price,
+                "Country Price": country_price,
+                "Dataset name": ecoinvent_mapping.get(resource_name, {}).get("dataset_name", "Unknown"),
+                "Dataset reference product": ecoinvent_mapping.get(resource_name, {}).get("dataset_reference_product",
+                                                                                          "Unknown"),
+                "operator": ecoinvent_mapping.get(resource_name, {}).get("operator", "Unknown"),
+                "DBID": create_id(resource, importer_iso, year)
+            })
+
+        if total_ir > 0:
+            Score_g, CF_g, CF_norm_g, IR_g = GeoPolRisk(total_ir, denom, country_price, hhi, db=db)
+            row = results[-1].copy()
+            row.update({
+                "Exporting Country": "Global",
+                "GeoPolRisk Score [-]": Score_g,
+                "GeoPolRisk Characterization Factor [USD/Kg]": CF_g,
+                "GeoPolRisk Characterization Factor Normalized to copper [-]": CF_norm_g,
+                "Import Risk": IR_g
+            })
+            results.append(row)
+
+    df_out = pd.DataFrame(results)
+    output_path = Path(db.output_directory) / "results.xlsx"
+    try:
+        df_out.to_excel(output_path, index=False)
+        print(f"Results saved to {output_path}")
     except Exception as e:
-        logging.debug(
-            "Error while recording data into dataframe for regional assessment!", e
-        )
-    return result
+        print(f"Error saving Excel: {e}")

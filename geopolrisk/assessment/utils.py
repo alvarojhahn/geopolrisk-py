@@ -12,11 +12,13 @@
 # You should have received a copy of the GNU General Public License
 # along with geopolrisk-py.  If not, see <https://www.gnu.org/licenses/>.
 
-import pandas as pd, os
-from .database import databases, logging, execute_query
+import pandas as pd
+import os
+from pathlib import Path
+from .database import logging, execute_query
+
 
 tradepath = None
-db = databases.directory + "/output"
 
 ########################################
 ##   Utility functions --  GeoPolRisk ##
@@ -42,7 +44,7 @@ def format_value(df, col, value):
         return str(value)
 
 
-def cvtcountry(country, type="ISO"):
+def cvtcountry(db, country, type="ISO"):
     # Function to convert country inputs, ISO to name or name to ISO
     """
     Type can be either 'ISO' or 'Name'
@@ -50,41 +52,42 @@ def cvtcountry(country, type="ISO"):
     - `type="ISO"`: Convert country name to ISO.
     - `type="Name"`: Convert ISO to country name.
     """
-    MapISOdf = databases.production["Country_ISO"]
+    MapISOdf = db.production["Country_ISO"]
     MapISOdf["ISO"] = MapISOdf["ISO"].astype(int)
 
     if type == "ISO":
         if country in MapISOdf["Country"].tolist():
-            return MapISOdf.loc[MapISOdf["Country"] == country, "ISO"].iloc[0]
+            result = MapISOdf.loc[MapISOdf["Country"] == country, "ISO"].iloc[0]
+            return result
         elif country in MapISOdf["ISO"].astype(int).tolist():
             return country
-        elif databases.regional == True and country in databases.regionslist:
+        elif db.regional and country in db.regionslist:
             if country in MapISOdf["Country"].values:
-                return MapISOdf.loc[MapISOdf["Country"] == country, "ISO"].values[0]
+                result = MapISOdf.loc[MapISOdf["Country"] == country, "ISO"].values[0]
+                return result
             elif isinstance(country, int) and country in MapISOdf["ISO"].values:
                 return country
         else:
-            logging.debug(
-                f"To int: Entered country '{country}' does not exist in our database!"
-            )
+            logging.debug(f"To int: Entered country '{country}' does not exist in our database!")
             raise ValueError
 
     elif type == "Name":
         if country in MapISOdf["ISO"].astype(int).tolist():
-            return MapISOdf.loc[MapISOdf["ISO"] == country, "Country"].iloc[0]
+            result = MapISOdf.loc[MapISOdf["ISO"] == country, "Country"].iloc[0]
+            return result
         elif str(country) in MapISOdf["Country"].tolist():
             return country
-        elif databases.regional == True and country in databases.regionslist:
+        elif db.regional and country in db.regionslist:
             if isinstance(country, int) and country in MapISOdf["ISO"].values:
-                return MapISOdf.loc[MapISOdf["ISO"] == country, "Country"].values[0]
+                result = MapISOdf.loc[MapISOdf["ISO"] == country, "Country"].values[0]
+                return result
             elif country in MapISOdf["Country"].values:
                 return country
         else:
-            logging.debug(
-                f"To Name: Entered country '{country}' does not exist in our database!"
-            )
+            logging.debug(f"To Name: Entered country '{country}' does not exist in our database!")
             raise ValueError
-    if databases.regional and country in databases.regionslist:
+
+    if db.regional and country in db.regionslist:
         return country
 
     logging.debug(f"Entered country '{country}' does not exist in our database!")
@@ -99,8 +102,8 @@ def create_id(HS, ISO, Year):
     return str(HS) + str(ISO) + str(Year)
 
 
-def createresultsdf():
-    dbpath = databases.directory + "/output/" + databases.Output
+def createresultsdf(db):
+    dbpath = str(Path(db.output_file))
 
     # Columns for the dataframe
     Columns = [
@@ -134,8 +137,8 @@ def createresultsdf():
     return df
 
 
-def writetodb(dataframe):
-    dbpath = databases.directory + "/output/" + databases.Output
+def writetodb(db, dataframe):
+    dbpath = str(Path(db.output_file))
     for index, row in dataframe.iterrows():
         check_query = "SELECT 1 FROM recordData WHERE DBID = ?;"
         exists = execute_query(check_query, db_path=dbpath, params=(row["DBID"],))
@@ -316,11 +319,11 @@ def aggregateTrade(period: int, country: list, rawmaterial: str, data):
 ###########################################################
 
 
-def transformdata(mode="prod"):
+def transformdata(db, mode="prod"):
     def cvtresource():
         pass
 
-    folder_path = databases.directory + "/databases"
+    folder_path = str(Path(db.geopolrisk_root / "lib"))
     file_name = "Company data.xlsx"
     excel_sheet_name = "Template"
     # file_path = glob.glob(os.path.join(folder_path, file_name))[0]
@@ -344,7 +347,7 @@ def transformdata(mode="prod"):
     ISO = []
     for country in Data["Country of Origin"].tolist():
         ISO.append(cvtcountry(country, type="ISO"))
-    MapWGIdf = databases.wgi
+    MapWGIdf = db.wgi
     wgi = []
     for i, iso in enumerate(ISO):
         try:
@@ -404,7 +407,7 @@ def transformdata(mode="prod"):
 ########################################################
 
 
-def getProd(rawmaterial):
+def getProd(rawmaterial, db):
     """
     The dictionary have a unique identifier that is accessed through a table called 'HS Code Map'
     The mapping table has the following structure
@@ -415,7 +418,7 @@ def getProd(rawmaterial):
     'Description' -> The description of the HS code
     'Symbol' -> Element equivalent to the raw material
     """
-    Mapdf = databases.production["HS Code Map"]
+    Mapdf = db.production["HS Code Map"]
     if rawmaterial in Mapdf["Reference ID"].tolist():
         MappedTableName = Mapdf.loc[Mapdf["Reference ID"] == rawmaterial, "Sheet_name"]
     else:
@@ -436,7 +439,7 @@ def getProd(rawmaterial):
     'data_source' -> The data source of each value point
     """
 
-    result = databases.production[MappedTableName.iloc[0]]
+    result = db.production[MappedTableName.iloc[0]]
     return result
 
 
@@ -445,41 +448,40 @@ def getProd(rawmaterial):
 ########################################################
 
 
-def regions(*args):
-    trackregion = 0
-    if len(args) != 0:
-        for key, value in args[0].items():
-            if type(key) is not str and type(value) is not list:
-                logging.debug(
-                    "Dictionary input to regions does not match required type."
-                )
-                return None
-            Print_Error = [
-                x
-                for x in value
-                if str(x) not in databases.production["Country_ISO"]["Country"].tolist()
-                and str(x)
-                not in databases.production["Country_ISO"]["ISO"].astype(str).tolist()
-            ]
-            if len(Print_Error) != 0:
-                logging.debug(
-                    "Error in creating a region! "
-                    "Following list of countries not"
-                    " found in the ISO list {}. "
-                    "Please conform with the ISO list or use"
-                    " 3 digit ISO country codes.".format(Print_Error)
-                )
-                return None
-            else:
-                trackregion += 1
-                databases.regionslist[key] = value
+def regions(region_dict: dict, db):
+    """
+    Assign user-defined regional groupings to the Database instance.
 
-    databases.regional = True
-    # The function must be called before calling any other functions in the core
-    # module. The following lines populate the region list with all the countries
-    # in the world including EU defined in the init file.
-    for i in databases.production["Country_ISO"]["Country"].tolist():
-        databases.regionslist[i] = [i]
+    Parameters:
+    - region_dict: dict, e.g. {"EU": ["France", "Germany"]}
+    - db: Database instance, which contains db.production["Country_ISO"]
+    """
+    if not isinstance(region_dict, dict):
+        raise TypeError("region_dict must be a dictionary")
+
+    valid_countries = db.production.get("Country_ISO", pd.DataFrame())
+    valid_names = valid_countries["Country"].astype(str).tolist()
+    valid_isos = valid_countries["ISO"].astype(str).tolist()
+
+    for region_name, members in region_dict.items():
+        if not isinstance(region_name, str) or not isinstance(members, list):
+            raise ValueError(f"Invalid region format: {region_name} → {members}")
+
+        not_found = [
+            c for c in members
+            if str(c) not in valid_names and str(c) not in valid_isos
+        ]
+        if not_found:
+            raise ValueError(
+                f"The following countries in region '{region_name}' were not found in Country_ISO: {not_found}"
+            )
+
+        db.regionslist[region_name] = members
+
+    for name in valid_names:
+        db.regionslist[name] = [name]
+
+    db.regional = True
 
 
 ########################################################
@@ -487,14 +489,14 @@ def regions(*args):
 ########################################################
 
 
-def Mapping():
+def Mapping(db):
     """
     Creates a dictionary mapping 'Reference ID' to a list of HS Codes.
     Extracts data from 'HS Code Map' in 'databases.production' and ensures data validity.
     Returns an empty dictionary in case of errors.
     """
     try:
-        temp = databases.production.get("HS Code Map")
+        temp = db.production.get("HS Code Map")
 
         if temp is None or temp.empty:
             logging.debug("HS Code Map dataset is empty or missing.")
@@ -532,7 +534,7 @@ def Mapping():
     return {}
 
 
-def mapped_baci():
+def mapped_baci(db):
     """
     This function processes trade data by mapping commodity codes to raw materials.
     It aggregates trade information (such as quantities and CIF values) for each raw material,
@@ -541,24 +543,24 @@ def mapped_baci():
     summing quantities and CIF values, and concatenating commodity codes where applicable.
     """
     try:
-        hs_map = Mapping()
+        hs_map = Mapping(db)
         master_data = []
+
         for raw_material, codes in hs_map.items():
-            temp = databases.baci_trade
-            filtered_data = temp.loc[temp["cmdCode"].astype(int).isin(codes)].copy()
+            temp = db.baci_trade
+            filtered_data = temp[temp["cmdCode"].astype(str).isin(map(str, codes))].copy()
+
+            if filtered_data.empty:
+                continue
+
             filtered_data["rawMaterial"] = raw_material
-            filtered_data["cmdCode"] = filtered_data["cmdCode"].astype(int)
-            filtered_data["period"] = filtered_data["period"].astype(int)
-            filtered_data["reporterCode"] = filtered_data["reporterCode"].astype(int)
-            filtered_data["partnerCode"] = filtered_data["partnerCode"].astype(int)
-            filtered_data["qty"] = (
-                filtered_data["qty"].apply(replace_func).astype(float, errors="ignore")
-            )
-            filtered_data["cifvalue"] = (
-                filtered_data["cifvalue"]
-                .apply(replace_func)
-                .astype(float, errors="ignore")
-            )
+            filtered_data["cmdCode"] = filtered_data["cmdCode"].astype(str)
+            filtered_data["period"] = filtered_data["period"].astype(str)
+            filtered_data["reporterCode"] = filtered_data["reporterCode"].astype(str)
+            filtered_data["partnerCode"] = filtered_data["partnerCode"].astype(str)
+            filtered_data["qty"] = pd.to_numeric(filtered_data["qty"], errors="coerce")
+            filtered_data["cifvalue"] = pd.to_numeric(filtered_data["cifvalue"], errors="coerce")
+
             grouped_data = filtered_data.groupby(
                 [
                     "period",
@@ -573,7 +575,7 @@ def mapped_baci():
                 as_index=False,
             ).agg(
                 {
-                    "cmdCode": lambda x: ";".join(map(str, sorted(set(x)))),
+                    "cmdCode": lambda x: ";".join(sorted(set(x))),
                     "qty": "sum",
                     "cifvalue": "sum",
                     "partnerWGI": "first",
@@ -581,14 +583,17 @@ def mapped_baci():
             )
 
             master_data.append(grouped_data)
-        master_df = pd.concat(master_data, ignore_index=True)
-        return master_df
+
+        if master_data:
+            return pd.concat(master_data, ignore_index=True)
+        else:
+            return pd.DataFrame()  # fallback if nothing matched
 
     except Exception as e:
         logging.debug(f"Error in mapped_baci function: {e}")
         raise
 
 
-def default_rmlist():
-    hs_map = Mapping()
+def default_rmlist(db):
+    hs_map = Mapping(db)
     return list(hs_map.keys())

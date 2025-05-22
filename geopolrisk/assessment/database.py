@@ -13,14 +13,17 @@
 # along with geopolrisk-py.  If not, see <https://www.gnu.org/licenses/>.
 
 
-import sqlite3, pandas as pd, logging, os, time
+import sqlite3
+import pandas as pd
+import logging
+import time
 from tqdm import tqdm
 from datetime import datetime
 from pathlib import Path
+import sys
 
 logging = logging
 
-databases = None
 
 
 def execute_query(query, db_path="", params=None, retries=5, delay=0.1):
@@ -70,61 +73,37 @@ def execute_query(query, db_path="", params=None, retries=5, delay=0.1):
                 raise  # Raise other operational errors immediately
 
 
-class database:
-    Output = "Datarecords.db"  # Database file to store the GeoPolRisk values
-    _dwmd = "world_mining_data.db"  # World Mining Data Database
-    _dwgi = "wgi.db"  # World Governance Indicator Database
-    _dbaci = "baci.db"  # Trade data from BACI HS92
-
+class Database:
     def __init__(self):
-        pass
+        """
+        Initialize the folders and verify database files exist.
+        Outputs, including `Datarecords.db`, are saved in an `output` folder in the current working directory.
+        """
+        try:
+            self.geopolrisk_root = Path(sys.modules["geopolrisk"].__file__).parent
 
-    """
-    The first iteration runs the init files that creates a folder 
-    "geopolrisk" in the documents folder of the operating system 
-    and all the required subfolders. The user must then copy all 
-    the required database files into the "databases" folder in 
-    the newly created "geopolrisk".
-    """
-    try:
-        directory = os.path.join(Path.home(), "Documents/geopolrisk")
-        if not os.path.exists(os.path.join(Path.home(), "Documents/geopolrisk")):
-            os.makedirs(os.path.join(Path.home(), "Documents/geopolrisk"))
+            self._dwmd = str(self.geopolrisk_root / "lib" / "world_mining_data.db")
+            self._dwgi = str(self.geopolrisk_root / "lib" / "wgi.db")
+            self._dbaci = str(self.geopolrisk_root / "lib" / "baci.db")
 
-        if not os.path.exists(os.path.join(Path.home(), "Documents/geopolrisk/logs")):
-            os.makedirs(os.path.join(Path.home(), "Documents/geopolrisk/logs"))
+            self.output_directory = Path.cwd() / "output"
+            self.output_directory.mkdir(exist_ok=True)
+            self.output_file = str(self.output_directory / "Datarecords.db")
 
-        # directory_databases = os.path.join(
-        #     Path.home(), "Documents/geopolrisk/databases"
-        # )
-        if not os.path.exists(
-            os.path.join(Path.home(), "Documents/geopolrisk/databases")
-        ):
-            os.makedirs(os.path.join(Path.home(), "Documents/geopolrisk/databases"))
+            # Verify database files exist
+            for db_path in [self._dwmd, self._dwgi, self._dbaci]:
+                if not Path(db_path).is_file():
+                    raise FileNotFoundError(f"Database file {db_path} not found!")
 
-        # path to the database files - "lib" directory in the parent directory of the current file
-        directory_databases = os.path.join(
-            Path(__file__).parent.resolve().parent, "lib"
-        )
+            self.production = {}
+            self.baci_trade = None
+            self.wgi = None
+            self.regionslist = {}
+            self.regional = False
 
-        if not os.path.exists(os.path.join(Path.home(), "Documents/geopolrisk/output")):
-            os.makedirs(os.path.join(Path.home(), "Documents/geopolrisk/output"))
-    except Exception as e:
-        print(f"Unable to create directories {e}")
-        raise FileNotFoundError
-
-    if not os.path.isfile(os.path.join(directory_databases, _dwmd)):
-        print(
-            f"Database file {_dwmd} not found! Copy the required database files into the folder {directory_databases}."
-        )
-    if not os.path.isfile(os.path.join(directory_databases, _dwgi)):
-        print(
-            f"Database file {_dwgi} not found! Copy the required database files into the folder {directory_databases}."
-        )
-    if not os.path.isfile(os.path.join(directory_databases, _dbaci)):
-        print(
-            f"Database file {_dbaci} not found! Copy the required database files into the folder {directory_databases}."
-        )
+        except Exception as e:
+            print(f"Error during initialization: {e}")
+            raise FileNotFoundError("Initialization failed due to missing directories or files.")
 
     ##############################################
     ##   READING TABLES FROM THE DATABASE FILES ##
@@ -208,42 +187,33 @@ class database:
     ]
 
     # Function to check if database exists and fetch the required tables
-    def check_db_tables(db, table_names):
+    def check_db_tables(self, db, table_names):
         try:
+            if not Path(db).exists():
+                raise FileNotFoundError(f"Database file {db} not found!")
+
             conn = sqlite3.connect(db)
             cursor = conn.cursor()
-            query = "SELECT name FROM sqlite_master WHERE type='table';"
-            cursor.execute(query)
+            cursor.execute("SELECT name FROM sqlite_master WHERE type='table';")
             result = cursor.fetchall()
-            table_names = [row[0] for row in result]
-        except Exception as e:
-            print(f"Unable to verify if the database contains the required tables {e}")
-            raise FileNotFoundError
+            existing_tables = [row[0] for row in result]
+            conn.close()
 
-        # check if all the tables in the list are present in the database
-        missingTables = []
-        for table_name in table_names:
-            if table_name not in table_names:
-                missingTables.append(table_name)
-            else:
-                pass
-
-        # If there are missing tables, raise an error
-        if len(missingTables) > 0:
-            print(
-                f"The following tables are missing from the database: {missingTables}"
-            )
-            return False
-        else:
+            missing_tables = [table for table in table_names if table not in existing_tables]
+            if missing_tables:
+                raise FileNotFoundError(f"Missing tables: {missing_tables}")
             return True
+        except Exception as e:
+            print(f"Unable to verify tables in database {db}: {e}")
+            raise FileNotFoundError
 
     ###############################################
     ## Extracting TABLES FROM THE DATABASE FILES ##
     ###############################################
 
-    def extract_tables_to_df(db_path, table_names):
+    def extract_tables_to_df(self, db_path, table_names):
+        tables = {}
         try:
-            tables = {}
             conn = sqlite3.connect(db_path)
             for table_name in tqdm(
                 table_names,
@@ -266,13 +236,6 @@ class database:
                             from baci_trade bacitab
                                 -- where bacitab.k IN ('760110', '260400') -- only for a better test performance
                             """
-                    # Test-Query - read the vieww
-                    # query = f"""
-                    #         select
-                    #         *
-                    #         from v_baci_trade_with_wgi bacitab
-                    #         --where cmdCode = '260400'
-                    #         """
                 else:
                     query = f"SELECT * FROM '{table_name}'"
                 table_df = pd.read_sql_query(query, conn)
@@ -283,101 +246,81 @@ class database:
             conn.close()
         return tables
 
-    # Check if the world_mining_data.db database exists and fetch the required tables
-    Database_wmd_path = os.path.join(directory_databases, _dwmd)
-    if check_db_tables(Database_wmd_path, Tables_world_mining_data):
-        tables_world_mining_data = extract_tables_to_df(
-            Database_wmd_path, Tables_world_mining_data
+    def load_databases(self):
+        db_paths = {
+            "world_mining_data": self._dwmd,
+            "wgi": self._dwgi,
+            "baci": self._dbaci,
+        }
+
+        for name, path in db_paths.items():
+            if name == "world_mining_data" and self.check_db_tables(path, self.Tables_world_mining_data):
+                tables = self.extract_tables_to_df(path, self.Tables_world_mining_data)
+                self.production = tables
+                if "HS Code Map" in self.production:
+                    self.production["HS Code Map"] = (
+                        self.production["HS Code Map"]
+                        .loc[self.production["HS Code Map"]["HS Code"] != "Not Available"]
+                        .dropna(subset=["Symbol"])
+                        .dropna(subset=["Symbol"])
+                    )
+
+            elif name == "wgi" and self.check_db_tables(path, self.Tables_wgi):
+                tables = self.extract_tables_to_df(path, self.Tables_wgi)
+                self.wgi = tables.get("Normalized")
+
+            elif name == "baci" and self.check_db_tables(path, self.Tables_baci):
+                tables = self.extract_tables_to_df(path, self.Tables_baci)
+                self.baci_trade = tables.get("baci_trade")
+
+            else:
+                raise FileNotFoundError(f"Error loading database: {name} at {path}")
+
+    def define_default_regions(self):
+        self.regionslist["EU"] = [
+            "Austria",
+            "Belgium",
+            "Bulgaria",
+            "Croatia",
+            "Cyprus",
+            "Czechia",
+            "Denmark",
+            "Estonia",
+            "Finland",
+            "France",
+            "Germany",
+            "Greece",
+            "Hungary",
+            "Ireland",
+            "Italy",
+            "Latvia",
+            "Lithuania",
+            "Luxembourg",
+            "Malta",
+            "Netherlands",
+            "Poland",
+            "Portugal",
+            "Romania",
+            "Slovakia",
+            "Slovenia",
+            "Spain",
+            "Sweden",
+        ]
+        self.regional = True
+
+
+
+    # Logging config
+    Filename = f"Log_File_{datetime.now():%Y-%m-%d(%H-%M-%S)}.log"
+    log_path = Path.cwd() / "output" / Filename
+    log_path.parent.mkdir(exist_ok=True)
+
+    try:
+        logging.basicConfig(
+            level=logging.DEBUG,
+            format="%(asctime)s | %(levelname)s | %(message)s",
+            filename=str(log_path),
+            filemode="w",
         )
-    else:
-        print("Error while reading the World Mining Data db")
-        raise (FileNotFoundError)
-
-    # Check if the wgi.db database exists and fetch the required tables
-    Database_wgi_path = os.path.join(directory_databases, _dwgi)
-    if check_db_tables(Database_wgi_path, Tables_wgi):
-        tables_wgi = extract_tables_to_df(Database_wgi_path, Tables_wgi)
-    else:
-        print("Error while reading the WGI db")
-        raise (FileNotFoundError)
-
-    # Check if the baci.db exists and fetch the required tables
-    Database_baci_path = os.path.join(directory_databases, _dbaci)
-    if check_db_tables(Database_baci_path, Tables_baci):
-        tables_baci = extract_tables_to_df(Database_baci_path, Tables_baci)
-    else:
-        print("Error while reading the BACI db")
-        raise (FileNotFoundError)
-
-    #############################################################
-    ## Extracting the dataframes into the individual variables ##
-    #############################################################
-
-    production = tables_world_mining_data
-    # production["HS Code Map"] = (
-    #     production["HS Code Map"]
-    #     .loc[production["HS Code Map"]["HS Code"] != "Not Available"]
-    #     .dropna(subset=["Symbol"])
-    # )
-    filtered_production = production["HS Code Map"].loc[
-        production["HS Code Map"]["HS Code"] != "Not Available"
-    ]
-    filtered_production = filtered_production.dropna(subset=["Symbol"])
-    production["HS Code Map"] = filtered_production
-
-    baci_trade = tables_baci["baci_trade"]
-    wgi = tables_wgi["Normalized"]
-
-    regionslist = {}
-    regional = False
-    regionslist["EU"] = [
-        "Austria",
-        "Belgium",
-        "Bulgaria",
-        "Croatia",
-        "Cyprus",
-        "Czechia",
-        "Denmark",
-        "Estonia",
-        "Finland",
-        "France",
-        "Germany",
-        "Greece",
-        "Hungary",
-        "Ireland",
-        "Italy",
-        "Latvia",
-        "Lithuania",
-        "Luxembourg",
-        "Malta",
-        "Netherlands",
-        "Poland",
-        "Portugal",
-        "Romania",
-        "Slovakia",
-        "Slovenia",
-        "Spain",
-        "Sweden",
-    ]
-
-
-if databases == None:
-    databases = database()
-
-###########################################################
-## Creating a log object and file for logging the errors ##
-###########################################################
-
-Filename = "Log_File_{:%Y-%m-%d(%H-%M-%S)}.log".format(datetime.now())
-log_level = logging.DEBUG
-try:
-    logging.basicConfig(
-        level=log_level,
-        format="""%(asctime)s | %(levelname)s | %(threadName)-10s |
-          %(filename)s:%(lineno)s - %(funcName)20s() |
-            %(message)s""",
-        filename=databases.directory + "/logs/" + Filename,
-        filemode="w",
-    )
-except:
-    print("Cannot create log file!")
+    except Exception:
+        print("Cannot create log file!")
