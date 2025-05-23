@@ -78,6 +78,19 @@ def gprs_calc(period: list,
     raw_baci["qty"] = pd.to_numeric(raw_baci["qty"], errors="coerce")
     raw_baci["cifvalue"] = pd.to_numeric(raw_baci["cifvalue"], errors="coerce")
 
+    global_production_map = (
+        raw_baci
+        .groupby(["period", "rawMaterial"])["qty"]
+        .sum()
+        .to_dict()
+    )
+    global_price_map = (
+        raw_baci
+        .groupby(["period", "rawMaterial"])
+        .apply(lambda g: g["cifvalue"].sum() / g["qty"].sum() if g["qty"].sum() > 0 else 0)
+        .to_dict()
+    )
+
     all_countries = set(countries).union(raw_baci["reporterCode"].unique(), raw_baci["partnerCode"].unique())
     country_name_map = {}
     country_iso_map = {}
@@ -153,15 +166,17 @@ def gprs_calc(period: list,
                 local_trade = pd.concat(local_trades)
             else:
                 local_trade = df.loc[key_local]
-            global_trade = df.loc[key_global]
+            # global_trade = df.loc[key_global]
+            global_prod = global_production_map.get((year_str, resource_name), 0)
         except KeyError:
             continue
 
-        if local_trade.empty or global_trade.empty:
+        if local_trade.empty or global_prod <= 0:
             continue
 
-        global_price = global_trade["cifvalue"].sum() / global_trade["qty"].sum() if global_trade[
-                                                                                         "qty"].sum() > 0 else 0
+        # global_price = global_trade["cifvalue"].sum() / global_trade["qty"].sum() if global_trade[
+        #                                                                                  "qty"].sum() > 0 else 0
+        global_price = global_price_map.get((year_str, resource_name), 0)
 
         if db.regional and importer in db.regionslist:
             region_isos = [str(cvtcountry(db=db, country=ctry, type="ISO")) for ctry in db.regionslist[importer]]
@@ -253,13 +268,14 @@ def gprs_calc(period: list,
                 "Global Price": global_price,
                 "Country Price": country_price,
                 "National Production": prodqty,
-                "Global Production": global_trade["qty"].sum(),
+                # "Global Production": global_trade["qty"].sum(),
+                "Global Production": global_prod,
                 "Specific Imports": numerator,
                 "Total Imports": total_import_qty,
                 "Dataset name": ecoinvent_mapping.get(resource_name, {}).get("dataset_name", "Unknown"),
-                "Dataset reference product": ecoinvent_mapping.get(resource_name, {}).get("dataset_reference_product",
-                                                                                          "Unknown"),
-                "operator": ecoinvent_mapping.get(resource_name, {}).get("operator", "Unknown"),
+                "Dataset reference product": ecoinvent_mapping.get(resource_name, {}).get("dataset_reference_product", "Unknown"),
+                "Operator": ecoinvent_mapping.get(resource_name, {}).get("operator", "Unknown"),
+                "Excludes": "; ".join(ecoinvent_mapping.get(resource_name, {}).get("excludes", [])),
                 "DBID": create_id(resource, importer_iso, year)
             })
 
