@@ -32,6 +32,7 @@ def gprs_calc(period: list,
               countries: list,
               rawmaterial: list,
               region_dict={},
+              bilateral=False,
               db=None):
     """
     A single aggregate function performs all calculations and exports the results as an Excel file.
@@ -54,23 +55,60 @@ def gprs_calc(period: list,
     ecoinvent_mapping = load_ei_mapping()
     regions(region_dict, db)
 
-    resource_name_map = {r: r for r in rawmaterial}
-    resource_hs_map = {r: ";".join(map(str, hs_map.get(r, []))) for r in rawmaterial}
-    country_name_map = {c: cvtcountry(db=db, country=c, type="Name") for c in countries}
-    country_iso_map = {c: str(cvtcountry(db=db, country=c, type="ISO")) for c in countries}
+    # resource_name_map = {r: r for r in rawmaterial}
+    # resource_hs_map = {r: ";".join(map(str, hs_map.get(r, []))) for r in rawmaterial}
+    # country_name_map = {c: cvtcountry(db=db, country=c, type="Name") for c in countries}
+    # country_iso_map = {c: str(cvtcountry(db=db, country=c, type="ISO")) for c in countries}
 
+    # raw_baci = mapped_baci(db)
+    # raw_baci["cmdCode"] = pd.to_numeric(raw_baci["cmdCode"], errors="coerce")
+    # df = raw_baci.copy()
+    # df["period"] = df["period"].astype(str)
+    # df["reporterCode"] = df["reporterCode"].astype(str)
+    # df["rawMaterial"] = df["rawMaterial"].astype(str)
+    # df["qty"] = pd.to_numeric(df["qty"], errors="coerce")
+    # df["cifvalue"] = pd.to_numeric(df["cifvalue"], errors="coerce")
+
+    ######
     raw_baci = mapped_baci(db)
     raw_baci["cmdCode"] = pd.to_numeric(raw_baci["cmdCode"], errors="coerce")
-    df = raw_baci.copy()
-    df["period"] = df["period"].astype(str)
-    df["reporterCode"] = df["reporterCode"].astype(str)
-    df["rawMaterial"] = df["rawMaterial"].astype(str)
-    df["qty"] = pd.to_numeric(df["qty"], errors="coerce")
-    df["cifvalue"] = pd.to_numeric(df["cifvalue"], errors="coerce")
+    raw_baci["period"] = raw_baci["period"].astype(str)
+    raw_baci["reporterCode"] = raw_baci["reporterCode"].astype(str)
+    raw_baci["rawMaterial"] = raw_baci["rawMaterial"].astype(str)
+    raw_baci["qty"] = pd.to_numeric(raw_baci["qty"], errors="coerce")
+    raw_baci["cifvalue"] = pd.to_numeric(raw_baci["cifvalue"], errors="coerce")
+
+    all_countries = set(countries).union(raw_baci["reporterCode"].unique(), raw_baci["partnerCode"].unique())
+    country_name_map = {}
+    country_iso_map = {}
+    for c in all_countries:
+        try:
+            if str(c).isdigit():  # Check if the code is numeric
+                country_code = int(c)  # Convert to int for cvtcountry
+            else:
+                country_code = c  # Pass non-numeric (e.g., names) directly
+            country_name_map[c] = cvtcountry(db=db, country=country_code, type="Name")
+            country_iso_map[c] = str(cvtcountry(db=db, country=country_code, type="ISO"))
+        except Exception as e:
+            logging.debug(f"Skipping country code '{c}': {e}")
+            continue
+    ######
+
 
     relevant_periods = {str(p) for p in period}
-    relevant_materials = {resource_name_map[r] for r in rawmaterial}
-    df = df[df["period"].isin(relevant_periods) & df["rawMaterial"].isin(relevant_materials)].copy()
+    # relevant_materials = {resource_name_map[r] for r in rawmaterial}
+    relevant_materials = {r for r in rawmaterial}
+    # df = df[df["period"].isin(relevant_periods) & df["rawMaterial"].isin(relevant_materials)].copy()
+
+    ###
+    relevant_reporters = {country_iso_map[c] for c in countries if c in country_iso_map}
+    df = raw_baci[
+        (raw_baci["period"].isin(relevant_periods)) &
+        (raw_baci["rawMaterial"].isin(relevant_materials)) &
+        (raw_baci["reporterCode"].isin(relevant_reporters))
+        ].copy()
+    ###
+
     df.set_index(["period", "reporterCode", "rawMaterial"], inplace=True)
     df.sort_index(inplace=True)
 
@@ -85,8 +123,10 @@ def gprs_calc(period: list,
     ):
         try:
             year_str = str(year)
-            resource_name = resource_name_map[resource]
-            resource_hs = resource_hs_map[resource]
+            # resource_name = resource_name_map[resource]
+            resource_name = resource
+            # resource_hs = resource_hs_map[resource]
+            resource_hs = ";".join(map(str, hs_map.get(resource, [])))
             importer_name = country_name_map[importer]
             importer_iso = country_iso_map[importer]
             if db.regional and importer in db.regionslist:
@@ -165,23 +205,23 @@ def gprs_calc(period: list,
         if not risk_results:
             continue
 
-        denom = total_import_qty + prodqty
-        if denom <= 0:
+        denom_global = total_import_qty + prodqty
+        if denom_global <= 0:
             continue
 
         total_score = 0
         total_ir = 0
 
-        all_exporters = set(raw_baci["partnerCode"].unique())
-        exporter_name_map = {}
-        for code in all_exporters:
-            try:
-                if str(code).isdigit():
-                    name = cvtcountry(db=db, country=int(code), type="Name")
-                    exporter_name_map[code] = name
-            except Exception as e:
-                logging.debug(f"[Exporter Mapping] Skipping code {code}: {e}")
-                continue
+        # all_exporters = set(raw_baci["partnerCode"].unique())
+        # exporter_name_map = {}
+        # for code in all_exporters:
+        #     try:
+        #         if str(code).isdigit():
+        #             name = cvtcountry(db=db, country=int(code), type="Name")
+        #             exporter_name_map[code] = name
+        #     except Exception as e:
+        #         logging.debug(f"[Exporter Mapping] Skipping code {code}: {e}")
+        #         continue
 
         for r in risk_results:
             if r["Numerator"] <= 0:
@@ -189,6 +229,11 @@ def gprs_calc(period: list,
 
             exporter = r["Exporter"]
             numerator = r["Numerator"]
+
+            denom = numerator + prodqty if bilateral else denom_global
+            if denom <= 0:
+                continue
+
             total_ir += numerator
             Score, CF, CF_norm, IR = GeoPolRisk(numerator, denom, country_price, hhi, db=db)
             total_score += Score
@@ -196,7 +241,8 @@ def gprs_calc(period: list,
             results.append({
                 "Year": year,
                 "Importing Country": importer if db.regional and importer in db.regionslist else importer_name,
-                "Exporting Country": exporter_name_map.get(exporter, "Unknown"),
+                # "Exporting Country": exporter_name_map.get(exporter, "Unknown"),
+                "Exporting Country": country_name_map.get(exporter, "Unknown"),
                 "Resource HS": resource_hs,
                 "Resource Name": resource_name,
                 "GeoPolRisk Score [-]": Score,
@@ -206,6 +252,10 @@ def gprs_calc(period: list,
                 "Import Risk": IR,
                 "Global Price": global_price,
                 "Country Price": country_price,
+                "National Production": prodqty,
+                "Global Production": global_trade["qty"].sum(),
+                "Specific Imports": numerator,
+                "Total Imports": total_import_qty,
                 "Dataset name": ecoinvent_mapping.get(resource_name, {}).get("dataset_name", "Unknown"),
                 "Dataset reference product": ecoinvent_mapping.get(resource_name, {}).get("dataset_reference_product",
                                                                                           "Unknown"),
@@ -214,7 +264,7 @@ def gprs_calc(period: list,
             })
 
         if total_ir > 0:
-            Score_g, CF_g, CF_norm_g, IR_g = GeoPolRisk(total_ir, denom, country_price, hhi, db=db)
+            Score_g, CF_g, CF_norm_g, IR_g = GeoPolRisk(total_ir, denom_global, country_price, hhi, db=db)
             row = results[-1].copy()
             row.update({
                 "Exporting Country": "Global",
