@@ -1,216 +1,437 @@
 ecoinvent_mappings:
-  Al:
-    resource_name: "Aluminium"
+  Aluminium:
     dataset_name: "aluminium production, primary"
     dataset_reference_product: "aluminium, primary"
     operator: "startswith"
-  261710:
-    resource_name: "Antimony"
+    excludes:
+      - 'liquid'
+      - 'alloy'
+  Antimony:
     dataset_name: "antimony production"
     dataset_reference_product: "antimony"
     operator: "startswith"
     excludes:
-      - "antimony trioxide"
-      - "antimony trioxide, in air"
-    factor:
-  280480:
-    resource_name: "Arsenic"
-    dataset_name: "arsenic"
-    dataset_reference_product: "arsenic"
-    operator: "startswith"
-  252400:
-    resource_name: "Asbestos"
-    dataset_name: "asbestos production, chrysotile type"
+      - "slag"
+  Arsenic:
+    dataset_name: "arsenide"
+    dataset_reference_product: "arsenide"
+    operator: "contains"
+  Asbestos:
+    dataset_name: "asbestos"
     dataset_reference_product: "asbestos"
-    operator: "startswith"
-  251110:
-    resource_name: "Baryte"
-    dataset_name: "barite production"
-    dataset_reference_product: "barite"
-    operator: "startswith"
-  280450:
-    resource_name: "Boron"
-    dataset_name: "boron carbide"
-    dataset_reference_product: "boron"
-    operator: "startswith"
-  810710:
-    resource_name: "Cadmium"
-    dataset_name: "cadmium production, primary"
+    operator: "contains"
+  Baryte:
+    dataset_name: "barium sulfide"
+    dataset_reference_product: "barium"
+    operator: "contains"
+  Bauxite:
+    dataset_name: "bauxite"
+    dataset_reference_product: "bauxite"
+    operator: "contains"
+    excludes:
+      - "infrastructure"
+      - "recultivation"
+      - "digestion"
+  Bentonite:
+    dataset_name: "bentonite"
+    dataset_reference_product: "bentonite"
+    operator: "contains"
+    excludes:
+      - "mine"
+      - "recultivation"
+      - "activated"
+      - "infrastructure"
+  Beryllium:
+    dataset_name: "beryllium"
+    dataset_reference_product: "beryllium"
+    operator: "contains"
+    excludes:
+      - "hydroxide"
+  Bismuth:
+    dataset_name: "bismuth"
+    dataset_reference_product: "bismuth"
+    operator: "contains"
+  Boron:
+    dataset_name: "borate"
+    dataset_reference_product: "borate"
+    operator: "contains"
+    excludes:
+      - "boric acid"
+      - "methoxide"
+      - "bleach"
+      - "diborane"
+  Cadmium:
+    dataset_name: "cadmium"
     dataset_reference_product: "cadmium"
-    operator: "startswith"
-  261000:
-    resource_name: "Chromium"
-    dataset_name: "chromium production"
-    dataset_reference_product: "chromium"
-    operator: "startswith"
-  270111:
-    resource_name: "Coal"
-    dataset_name: "hard coal"
-    dataset_reference_product: "hard coal"
-    operator: "startswith"
-  282200:
-    resource_name: "Cobalt"
-    dataset_name: "cobalt production"
+    operator: "contains"
+    excludes:
+      - "brazing"
+      - "chloride"
+      - "telluride"
+  Chromite:
+    dataset_name: "chromite"
+    dataset_reference_product: "chromite"
+    operator: "contains"
+  Cobalt:
+    dataset_name: "cobalt"
     dataset_reference_product: "cobalt"
-    operator: "startswith"
-  260300:
-    resource_name: "Copper"
+    operator: "contains"
+    excludes:
+      - "ammonia"
+      - "calcium carbonate"
+      - "electricity"
+      - "electrolyte"
+      - "thermal spraying"
+      - "sulfuric acid"
+      - "ammonium sulfate"
+      - "zinc"
+      - "copper-cobalt ore"
+  Coking coal:
+    dataset_name: "coke"
+    dataset_reference_product: "coke"
+    operator: "contains"
+    excludes:
+      - "benzene"
+      - "tar"
+      - "factory"
+      - "steam"
+      - "sulfur"
+      - "needle"
+  Copper:
     dataset_name: "copper mine operation"
     dataset_reference_product: "copper concentrate"
-    operator: "startswith"
-  270900:
-    resource_name: "Crude oil"
-    dataset_name: "petroleum and gas production"
+    operator: "contains"
+    excludes:
+      - "molybdenite"
+  Crude oil:
+    dataset_name: "petroleum"
     dataset_reference_product: "petroleum"
-    operator: "startswith"
-  252910:
-    resource_name: "Feldspar"
+    operator: "contains"
+    excludes:
+      - "high pressure"
+      - "coke"
+      - "pipeline"
+      - "water discharge"
+      - "tanker, for petroleum"
+      - "transport, pipeline"
+      - "slack wax"
+      - "field infrastructure"
+      - "liquified petroleum gas"
+      - "refinery"
+      - "combustion, in drilling tests"
+      - "liquified"
+      - "liquefied"
+      - "transport, "
+      - "platform"
+  Feldspar:
     dataset_name: "feldspar production"
     dataset_reference_product: "feldspar"
     operator: "startswith"
-  252922:
-    resource_name: "Fluorspar"
-    dataset_name: "fluorspar production"
+  Fluorspar:
+    dataset_name: "production"
     dataset_reference_product: "fluorspar"
-    operator: "startswith"
-  811291:
-    resource_name: "Gallium"
-    dataset_name: "gallium production"
-    dataset_reference_product: "gallium"
-    operator: "startswith"
-  282560:
-    resource_name: "Germanium"
-    dataset_name: "zinc mine operation"
+    operator: "contains"
+#  Gallium:
+#    dataset_name: "gallium production"
+#    dataset_reference_product: "gallium"
+#    operator: "startswith"
+  Germanium:
+    dataset_name: "operation"
     dataset_reference_product: "germanium"
-    operator: "startswith"
-  710811:
-    resource_name: "Gold"
-    dataset_name: "gold production"
+    operator: "contains"
+  Gold:
+    dataset_name: ""
     dataset_reference_product: "gold"
-    operator: "startswith"
-  250410:
-    resource_name: "Graphite"
-    dataset_name: "graphite production"
+    operator: "contains"
+    excludes:
+      - "infrastructure"
+      - "construction"
+      - "ings"
+      - "gaas wafer"
+      - "impoundment"
+      - "cut-off"
+  Graphite:
+    dataset_name: "graphite"
     dataset_reference_product: "graphite"
-    operator: "startswith"
-  252010:
-    resource_name: "Gypsum"
+    operator: "contains"
+    excludes:
+      - "synthetic"
+      - "polystyrene"
+      - "anode"
+  Gypsum:
     dataset_name: "gypsum quarry operation"
     dataset_reference_product: "gypsum, mineral"
     operator: "startswith"
-  260111:
-    resource_name: "Iron"
+  Iron:
     dataset_name: "iron production"
     dataset_reference_product: "iron"
     operator: "contains"
-  260700:
-    resource_name: "Lead"
-    dataset_name: "primary lead production from concentrate"
-    dataset_reference_product: "lead"
-    operator: "startswith"
-  270112:
-    resource_name: "Lignite"
-    dataset_name: "lignite mine operation"
+    excludes:
+      - "sewage"
+      - "residues"
+      - "wastewater"
+      - "bottom ash"
+  Kaolin:
+    dataset_name: "kaolin"
+    dataset_reference_product: "kaolin"
+    operator: "contains"
+    excludes:
+      - "refractory"
+  Lead:
+    dataset_name: "lead"
+    dataset_reference_product: "lead concentrate"
+    operator: "contains"
+  Lignite:
+    dataset_name: "lignite"
     dataset_reference_product: "lignite"
-    operator: "startswith"
-  283691:
-    resource_name: "Lithium"
-    dataset_name: "lithium carbonate production"
-    dataset_reference_product: "lithium carbonate"
-    operator: "startswith"
-  251910:
-    resource_name: "Magnesium"
-    dataset_name: "magnesium production"
+    operator: "contains"
+    excludes:
+      - "power plant"
+      - "treatment"
+      - "spoil"
+      - "ash"
+      - "factory"
+      - "mine infrastructure"
+      - "SOx retained"
+      - "carbon dioxide storage"
+  Lithium:
+    dataset_name: "lithium"
+    dataset_reference_product: "lithium"
+    operator: "contains"
+    excludes:
+      - "chlorine, gaseous"
+      - "hexafluorophosphate"
+      - "phosphate"
+      - "sulfate"
+      - "chloride"
+      - "fluoride"
+      - "foil"
+  Magnesite:
+    dataset_name: "magnesium"
     dataset_reference_product: "magnesium"
-    operator: "startswith"
-  260200:
-    resource_name: "Manganese"
-    dataset_name: "manganese production"
+    operator: "contains"
+    excludes:
+      - "factory"
+      - "chloride"
+      - "alloy"
+      - "sulfate"
+  Manganese:
+    dataset_name: "manganese"
     dataset_reference_product: "manganese"
-    operator: "startswith"
-  280540:
-    resource_name: "Mercury"
-    dataset_name: "mercury production"
+    operator: "contains"
+    excludes:
+      - "lithium"
+      - "potassium"
+      - "alloy"
+      - "factory"
+  Mercury:
+    dataset_name: "mercury"
     dataset_reference_product: "mercury"
-    operator: "startswith"
-  261310:
-    resource_name: "Molybdenum"
-    dataset_name: "molybdenum production"
+    operator: "contains"
+    excludes:
+      - "treatment"
+      - "chlorine"
+      - "spent activated"
+  Molybdenum:
+    dataset_name: "molybdenum"
     dataset_reference_product: "molybdenum"
-    operator: "startswith"
-  271111:
-    resource_name: "Natural gas"
-    dataset_name: "petroleum and gas production"
-    dataset_reference_product: "natural gas, high pressure"
-    operator: "startswith"
-  260400:
-    resource_name: "Nickel"
-    dataset_name: "platinum group metal"
+    operator: "contains"
+  Natural gas:
+    dataset_name: "natural gas"
+    dataset_reference_product: "natural gas"
+    operator: "contains"
+    excludes:
+      - "burned"
+      - "evaporation"
+      - "vented"
+      - "infrastructure"
+      - "waste"
+      - "heat, district or industrial, natural gas"
+      - "maintenance, tanker"
+      - "pipeline,"
+      - "transport, passenger car,"
+      - "transport, freight"
+      - "heat, central or small-scale, natural gas"
+      - "heat, district or industrial, other than natural gas"
+      - "service station"
+      - "passenger car, petrol/natural gas"
+      - "processing plant"
+      - "sweetening"
+      - "other than"
+      - "burnt"
+      - "tanker,"
+      - "water discharge"
+      - "market for industrial furnace"
+      - "syngas"
+      - "offshore platform, natural gas"
+      - "industrial furnace, natural gas"
+      - "drying"
+      - "fuel tank, compressed natural gas, 200 bar"
+      - "from wood"
+  Nickel:
+    dataset_name: "nickel"
     dataset_reference_product: "nickel"
     operator: "contains"
-  261590:
-    resource_name: "Niobium"
-    dataset_name: "ferroniobium production, from pyrochlore concentrate, 66% Nb"
+    excludes:
+      - "sulfidic tailings"
+      - "selective coat"
+      - "alloy"
+      - "electrolyte, nickel-rich"
+      - "nickel smelter slag"
+  Niobium:
+    dataset_name: "ferroniobium"
     dataset_reference_product: "ferroniobium"
-    operator: "startswith"
-  711021:
-    resource_name: "Palladium"
-    dataset_name: "platinum group metal"
+    operator: "contains"
+  Palladium:
+    dataset_name: ""
     dataset_reference_product: "palladium"
-    operator: "startswith"
-  711011:
-    resource_name: "Platinum"
-    dataset_name: "platinum group metal"
+    operator: "contains"
+  Platinum:
+    dataset_name: ""
     dataset_reference_product: "platinum"
-    operator: "startswith"
-  284690:
-    resource_name: "Rare earth"
-    dataset_name: "rare earth element mine"
-    dataset_reference_product: "rare earth carbonate concentrate"
-    operator: "startswith"
-  711031:
-    resource_name: "Rhodium"
-    dataset_name: "platinum group metal"
+    operator: "contains"
+    excludes:
+      - "platinum group metal concentrate"
+  Phospate:
+    dataset_name: "phosphate"
+    dataset_reference_product: "phosphate"
+    operator: "contains"
+    excludes:
+      - "lithium iron phosphate"
+  Rare earth:
+    dataset_name: "rare earth"
+    dataset_reference_product: ""
+    operator: "contains"
+    excludes:
+      - "sulfur"
+      - "calcium"
+      - "iron ore concentrate"
+      - "coal tar"
+      - "hydrogen fluoride"
+      - "sodium chloride, powder"
+      - "fluorspar, 97% purity"
+      - "pyrochlore concentrate"
+      - "cut-off"
+  Rhodium:
+    dataset_name: "rhodium"
     dataset_reference_product: "rhodium"
-    operator: "startswith"
-  280490:
-    resource_name: "Selenium"
-    dataset_name: "selenium production"
+    operator: "contains"
+  Selenium:
+    dataset_name: ""
     dataset_reference_product: "selenium"
-    operator: "startswith"
-  261610:
-    resource_name: "Silver"
-    dataset_name: "mine operation"
+    operator: "contains"
+  Silver:
+    dataset_name: ""
     dataset_reference_product: "silver"
     operator: "contains"
-  260900:
-    resource_name: "Tin"
-    dataset_name: "tin production"
+    excludes:
+      - "infrastructure"
+      - "construction"
+      - "sulfidic tailings"
+      - "zinc concentrate"
+      - "solar collector"
+  Stem coal:
+    dataset_name: "hard coal"
+    dataset_reference_product: "hard coal"
+    operator: "contains"
+    excludes:
+      - "treatment"
+      - "plant"
+      - "factory"
+      - "carbon dioxide storage from hard coal"
+      - "SOx retained"
+      - "spoil from hard coal mining"
+      - "mine infrastructure"
+  Sulfur:
+    dataset_name: ""
+    dataset_reference_product: "sulfur"
+    operator: "contains"
+    excludes:
+      - "antimony slag"
+      - "diesel, low"
+      - "petrol, low"
+      - "desul"
+  Tantalum:
+    dataset_name: "tantalum"
+    dataset_reference_product: "tantalum"
+    operator: "contains"
+    excludes:
+      - "through-hole"
+  Tin:
+    dataset_name: "tin"
     dataset_reference_product: "tin"
-    operator: "startswith"
-  261400:
-    resource_name: "Titanium"
-    dataset_name: "titanium production"
+    operator: "contains"
+    excludes:
+      - "harvest"
+      - "print"
+      - "sort"
+      - "coat"
+      - "ing"
+      - "leachate, SLF"
+      - "bottom ash, MSWI, "
+      - "group metal"
+      - "sheet"
+      - "scrap"
+      - "turpentine"
+      - "platinum"
+      - "slag"
+  Titanium:
+    dataset_name: "titanium"
     dataset_reference_product: "titanium"
-    operator: "startswith"
-  261100:
-    resource_name: "Tungsten"
-    dataset_name: "tungsten mine operation and beneficiation"
-    dataset_reference_product: "tungsten concentrate"
-    operator: "startswith"
-  261210:
-    resource_name: "Uranium"
-    dataset_name: "uranium mine operation"
+    operator: "contains"
+    excludes:
+      - "chlorine, for reuse in"
+      - "magnesium, for reuse in"
+      - "magnesium chloride"
+      - "pre-weathering"
+  Tungsten:
+    dataset_name: "tungsten"
+    dataset_reference_product: "tungsten"
+    operator: "contains"
+    excludes:
+      - "thermal spraying"
+  Uranium:
+    dataset_name: "uranium"
     dataset_reference_product: "uranium"
-    operator: "startswith"
-  260800:
-    resource_name: "Zinc"
-    dataset_name: "primary zinc production from concentrate"
+    operator: "contains"
+    excludes:
+      - "facility"
+      - "infrastructure"
+      - "tailing"
+      - "mill"
+  Vanadium:
+    dataset_name: "vanadium"
+    dataset_reference_product: "vanadium pentoxide"
+    operator: "contains"
+    excludes:
+      - "battery, redox-flow"
+      - "battery system"
+      - "bearing"
+      - "unalloyed"
+  Zinc:
+    dataset_name: "zinc"
     dataset_reference_product: "zinc"
-    operator: "startswith"
-  261510:
-    resource_name: "Zirconium"
+    operator: "contains"
+    excludes:
+      - "slag"
+      - "zinc slag"
+      - "coat,"
+      - "pre-weathering"
+      - "sulfidic tailings"
+      - "indium rich leaching residues"
+      - "cadmium sludge from "
+      - " residues, MSWI"
+      - "bottom ash, MSWI"
+      - "zinc in car shredder residue"
+      - "perovskite cell"
+      - "mine infrastructure"
+      - "post-consumer"
+      - "coating"
+  Zirconium:
     dataset_name: "zirconium"
     dataset_reference_product: "zirconium"
-    operator: "startswith"
+    operator: "contains"
+    excludes:
+      - "for reuse"
+      - "magnesium chloride"
 
