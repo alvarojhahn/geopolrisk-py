@@ -127,6 +127,12 @@ ecoinvent_mappings:
     dataset_name: "feldspar production"
     dataset_reference_product: "feldspar"
     operator: "startswith"
+  Ferrosilicon:
+    dataset_name: "ferrosilicon"
+    dataset_reference_product: "ferrosilicon"
+    operator: startswith
+    excludes:
+      - "market"
   Fluorspar:
     dataset_name: "production"
     dataset_reference_product: "fluorspar"
@@ -162,6 +168,12 @@ ecoinvent_mappings:
     dataset_name: "gypsum quarry operation"
     dataset_reference_product: "gypsum, mineral"
     operator: "startswith"
+  Iridium:
+    dataset_name: ""
+    dataset_reference_product: "iridium"
+    operator: startswith
+    excludes:
+      - "market"
   Iron:
     dataset_name: "iron production"
     dataset_reference_product: "iron"
@@ -298,6 +310,12 @@ ecoinvent_mappings:
     operator: "contains"
     excludes:
       - "lithium iron phosphate"
+  Potassium:
+    dataset_name: ""
+    dataset_reference_product: "potassium hydroxide"
+    operator: contains
+    excludes:
+      - "market"
   Rare earth:
     dataset_name: "rare earth"
     dataset_reference_product: ""
@@ -316,10 +334,23 @@ ecoinvent_mappings:
     dataset_name: "rhodium"
     dataset_reference_product: "rhodium"
     operator: "contains"
+  Ruthenium:
+    dataset_name: ""
+    dataset_reference_product: "ruthenium"
+    operator: startswith
+    excludes:
+      - "market"
   Selenium:
     dataset_name: ""
     dataset_reference_product: "selenium"
     operator: "contains"
+  Silicon:
+    dataset_name: "silicon production"
+    dataset_reference_product: "silicon, metallurgical"
+    operator: startswith
+    excludes:
+      - "silicone"
+      - "market"
   Silver:
     dataset_name: ""
     dataset_reference_product: "silver"
@@ -342,6 +373,12 @@ ecoinvent_mappings:
       - "SOx retained"
       - "spoil from hard coal mining"
       - "mine infrastructure"
+  Strontium:
+    dataset_name: "strontium carbonate"
+    dataset_reference_product: "strontium carbonate"
+    operator: startswith
+    excludes:
+      - "market"
   Sulfur:
     dataset_name: ""
     dataset_reference_product: "sulfur"
